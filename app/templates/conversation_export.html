@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Conversa - {{ project.name }}</title>
+    <style>
+      :root {
+        --bg: #f3f5f8;
+        --surface: #ffffff;
+        --line: #d0d5dd;
+        --line-soft: #eaecf0;
+        --text: #101828;
+        --muted: #475467;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .wrap {
+        width: min(96vw, 1600px);
+        margin: 16px auto;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface);
+        padding: 14px;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .toolbar input,
+      .toolbar select {
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        padding: 7px 9px;
+        font: inherit;
+      }
+      .chat {
+        border: 1px solid var(--line-soft);
+        border-radius: 12px;
+        padding: 10px;
+        display: grid;
+        gap: 8px;
+      }
+      .row { display: flex; min-width: 0; }
+      .row.other { justify-content: flex-start; }
+      .row.mine { justify-content: flex-end; }
+      .bubble {
+        max-width: min(74ch, 88%);
+        min-width: 0;
+        border: 1px solid var(--line-soft);
+        border-radius: 12px;
+        padding: 7px 10px 8px;
+        background: #fff;
+      }
+      .row.mine .bubble {
+        background: rgba(22, 163, 74, 0.12);
+        border-color: rgba(22, 163, 74, 0.28);
+      }
+      .bubble-head {
+        display: flex;
+        align-items: baseline;
+        gap: 7px;
+        margin-bottom: 4px;
+      }
+      .author {
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .time {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .text {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.34;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .attachment {
+        margin-top: 8px;
+      }
+      .attachment img,
+      .attachment video {
+        display: block;
+        max-width: min(420px, 100%);
+        border-radius: 8px;
+        border: 1px solid var(--line-soft);
+        background: #fff;
+      }
+      .attachment img.sticker-preview {
+        width: 128px;
+        max-width: 128px;
+        max-height: 128px;
+        object-fit: contain;
+        border-radius: 12px;
+        background: transparent;
+      }
+      .attachment audio {
+        width: min(360px, 100%);
+      }
+      .attachment .open-link {
+        display: inline-block;
+        margin-top: 6px;
+      }
+      .file-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: #f8fafc;
+        color: var(--text);
+        text-decoration: none;
+        max-width: 100%;
+        font-size: 13px;
+      }
+      .doc-preview {
+        margin-top: 8px;
+        width: min(560px, 100%);
+        height: 320px;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="wrap">
+      <h1>Conversa do Projeto: {{ project.name }}</h1>
+      <div class="meta">
+        <div>Projeto #{{ project.id }}</div>
+        <div>Origem do projeto: {{ origin_label }}</div>
+        <div>Visualização atual: {{ source_label }}</div>
+      </div>
+      <div class="toolbar">
+        <input id="q" type="text" placeholder="Buscar texto..." />
+        <select id="author">
+          <option value="">Todos autores</option>
+          {% for msg in messages %}
+          <option value="{{ msg.author }}">{{ msg.author }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="chat">
+        {% if messages %}
+        {% for msg in messages %}
+        <article class="row {{ msg.side }}" data-author="{{ msg.author }}">
+          <div class="bubble">
+            <div class="bubble-head">
+              <span class="author">{{ msg.author }}</span>
+              {% if msg.timestamp %}
+              <span class="time">{{ msg.timestamp }}</span>
+              {% endif %}
+            </div>
+            {% if msg.message %}
+            <p class="text">{{ msg.message }}</p>
+            {% endif %}
+            {% if msg.attachment_url %}
+            <div class="attachment">
+              {% if msg.attachment_kind == "sticker" %}
+              <img class="sticker-preview" src="{{ msg.attachment_url }}" alt="{{ msg.attachment_name }}" loading="lazy" />
+              {% elif msg.attachment_kind == "image" %}
+              <a href="{{ msg.attachment_url }}" target="_blank" rel="noopener">
+                <img src="{{ msg.attachment_url }}" alt="{{ msg.attachment_name }}" loading="lazy" />
+              </a>
+              {% elif msg.attachment_kind == "video" %}
+              <video src="{{ msg.attachment_url }}" controls preload="metadata"></video>
+              <a class="open-link" href="{{ msg.attachment_url }}" target="_blank" rel="noopener">Abrir vídeo</a>
+              {% elif msg.attachment_kind == "audio" %}
+              <audio controls preload="none" data-src="{{ msg.attachment_url }}"></audio>
+              {% elif msg.attachment_kind == "pdf" %}
+              <a class="file-link" href="{{ msg.attachment_url }}" target="_blank" rel="noopener">{{ msg.attachment_name }}</a>
+              <iframe class="doc-preview" src="{{ msg.attachment_url }}#toolbar=0&navpanes=0"></iframe>
+              {% else %}
+              <a class="file-link" href="{{ msg.attachment_url }}" target="_blank" rel="noopener">{{ msg.attachment_name }}</a>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+        {% else %}
+        <p class="text">Nenhuma mensagem estruturada foi encontrada nesse arquivo.</p>
+        {% endif %}
+      </div>
+    </section>
+    <script>
+      (() => {
+        const q = document.getElementById("q");
+        const author = document.getElementById("author");
+        const rows = Array.from(document.querySelectorAll(".chat .row"));
+        const audioPlayers = Array.from(document.querySelectorAll(".chat audio[data-src]"));
+        const authorSeen = new Set();
+        for (const opt of Array.from(author.options)) {
+          if (authorSeen.has(opt.value)) opt.remove();
+          authorSeen.add(opt.value);
+        }
+        const run = () => {
+          const text = (q.value || "").trim().toLowerCase();
+          const a = (author.value || "").trim();
+          for (const row of rows) {
+            const rowText = row.textContent.toLowerCase();
+            const okText = !text || rowText.includes(text);
+            const okAuthor = !a || row.dataset.author === a;
+            row.style.display = okText && okAuthor ? "" : "none";
+          }
+        };
+        q.addEventListener("input", run);
+        author.addEventListener("change", run);
+
+        const pauseOthers = (current) => {
+          for (const player of audioPlayers) {
+            if (player !== current && !player.paused) {
+              player.pause();
+            }
+          }
+        };
+
+        const hydratePlayer = (player) => {
+          if (!player || player.src) return;
+          const src = player.dataset.src || "";
+          if (!src) return;
+          player.src = src;
+          player.load();
+        };
+
+        for (const player of audioPlayers) {
+          player.addEventListener(
+            "play",
+            () => {
+              hydratePlayer(player);
+              pauseOthers(player);
+            },
+            { capture: true }
+          );
+          player.addEventListener("pointerdown", () => hydratePlayer(player), { passive: true });
+          player.addEventListener("focus", () => hydratePlayer(player));
+        }
+      })();
+    </script>
+  </body>
+</html>

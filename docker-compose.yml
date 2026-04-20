@@ -1,0 +1,12 @@
+services:
+  web:
+    build: .
+    container_name: whisper-chat-transcriber-web
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_WHISPER_MODEL_SIZE=small
+      - APP_WHISPER_DEVICE=cpu
+      - APP_WHISPER_COMPUTE_TYPE=int8
+    volumes:
+      - ./data:/app/data

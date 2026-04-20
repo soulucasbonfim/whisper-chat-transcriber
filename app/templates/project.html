@@ -1,0 +1,1133 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="section-head">
+    <h2>Projeto #{{ project.id }} - {{ project.name }}</h2>
+    <span class="mono">tipo: {{ project.kind }}</span>
+  </div>
+
+  <div class="project-progress-wrap">
+    <div class="project-progress-head">
+      <span><strong>Status:</strong> <span id="projectStatus" data-raw-status="{{ project.status }}" class="badge {{ project_status_display_class }}">{{ project_status_display }}</span></span>
+      <span class="mono" id="projectProgressLabel">{{ project_progress_pct }}%</span>
+    </div>
+    <div class="progress-track project-track"><div id="projectProgressFill" class="progress-fill" style="width: {{ project_progress_pct }}%"></div></div>
+    <p id="importMessage" class="hint {% if project.status != 'importing' and project.status != 'import_error' %}hidden{% endif %}">
+      {{ import_state.message or "Preparando importação..." }}
+    </p>
+  </div>
+
+  <div class="project-layout">
+    <section class="project-table-pane">
+      <div id="tablePager" class="table-pager hidden">
+        <button id="prevPageBtn" type="button" class="btn btn-secondary">Anterior</button>
+        <span class="mono" id="pageInfo">Página 1</span>
+        <button id="nextPageBtn" type="button" class="btn btn-secondary">Próxima</button>
+      </div>
+      <div class="table-wrap table-scroll">
+        <table id="audioTable">
+          <thead>
+            <tr>
+              <th>Transcrever</th>
+              <th>Arquivo</th>
+              <th>Tamanho</th>
+              <th>Duração</th>
+              <th>Ouvir</th>
+              <th>Status / Progresso</th>
+              <th>Ref no texto</th>
+              <th>Transcrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in audios %}
+            <tr data-audio-id="{{ a.id }}">
+              <td>
+                <input type="checkbox" form="settingsForm" name="selected_audio_ids" value="{{ a.id }}" {% if a.id in selected_audio_ids %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+              </td>
+              <td>{{ a.original_name }}</td>
+              <td class="audio-size">{{ a.file_size_human }}</td>
+              <td class="audio-duration">{{ a.duration_human }}</td>
+              <td class="audio-player-cell">
+                {% if a.audio_url %}
+                <div class="mini-audio" data-audio-id="{{ a.id }}">
+                  <button type="button" class="mini-audio-btn" aria-label="Reproduzir áudio"></button>
+                  <input type="range" class="mini-audio-seek" min="0" max="100" step="0.1" value="0" aria-label="Progresso do áudio" />
+                  <span class="mono mini-audio-time">00:00 / --:--</span>
+                  <audio preload="none" data-src="{{ a.audio_url }}"></audio>
+                </div>
+                {% else %}
+                -
+                {% endif %}
+              </td>
+              <td>
+                <div class="progress-col">
+                  <span class="badge {{ a.status }} audio-status">{{ a.status }}</span>
+                  <div class="progress-track"><div class="progress-fill" style="width: {{ a.progress_pct }}%"></div></div>
+                  <span class="mono audio-progress-label">{{ a.progress_pct }}%</span>
+                </div>
+              </td>
+              <td class="audio-ref">{% if a.line_hint %}sim{% else %}-{% endif %}</td>
+              <td class="audio-transcript-link">
+                {% if a.transcript_path %}
+                <a href="/files/{{ a.transcript_path.replace('data/', '') }}" target="_blank">baixar</a>
+                {% else %}
+                -
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <section class="project-metrics-section">
+        <div class="section-head compact-head">
+          <h3>Resumo do projeto</h3>
+          <span class="mono">atualizado automaticamente</span>
+        </div>
+        <footer class="project-footer-stats">
+          <div class="stat-box">
+            <span class="mono">Arquivos</span>
+            <strong id="footerTotalFiles">{{ footer_total_files }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Selecionados</span>
+            <strong id="footerSelectedCount">{{ footer_selected_files }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Concluídos</span>
+            <strong id="footerDoneCount">{{ footer_done_count }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Pulados</span>
+            <strong id="footerSkippedCount">{{ footer_skipped_count }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Tamanho total</span>
+            <strong>{{ footer_total_size_human }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Duração total</span>
+            <strong>{{ footer_total_duration_human }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Início transcrição</span>
+            <strong id="footerTxStart">{{ footer_transcription_started_at }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Fim transcrição</span>
+            <strong id="footerTxEnd">{{ footer_transcription_finished_at }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Tempo desta execução</span>
+            <strong id="footerTxRunElapsed">{{ footer_transcription_run_elapsed_human }}</strong>
+          </div>
+          <div class="stat-box">
+            <span class="mono">Tempo acumulado</span>
+            <strong id="footerTxTotalElapsed">{{ footer_transcription_total_elapsed_human }}</strong>
+          </div>
+        </footer>
+      </section>
+    </section>
+
+    <aside class="project-sidebar">
+      <form id="settingsForm" action="/projects/{{ project.id }}/settings" method="post" class="settings-form">
+        <label>Idioma da transcrição</label>
+        <select name="transcription_language" {% if is_locked %}disabled{% endif %}>
+          <option value="auto" {% if configured_language == "auto" %}selected{% endif %}>Auto detectar</option>
+          <option value="pt" {% if configured_language == "pt" %}selected{% endif %}>Português</option>
+          <option value="en" {% if configured_language == "en" %}selected{% endif %}>Inglês</option>
+          <option value="es" {% if configured_language == "es" %}selected{% endif %}>Espanhol</option>
+          <option value="fr" {% if configured_language == "fr" %}selected{% endif %}>Francês</option>
+          <option value="de" {% if configured_language == "de" %}selected{% endif %}>Alemão</option>
+          <option value="it" {% if configured_language == "it" %}selected{% endif %}>Italiano</option>
+        </select>
+
+        <details class="runtime-settings project-collapsible">
+          <summary>Importação de mídias do ZIP</summary>
+          <label class="toggle">
+            <input type="checkbox" name="include_video_audio" {% if extract_video_audio %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+            <span>Transcrever áudio de vídeos do ZIP</span>
+            <span class="info-tip" tabindex="0" data-tip="Quando ativado, cada vídeo do ZIP terá o áudio extraído e transcrito." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+          </label>
+
+          <label class="toggle">
+            <input type="checkbox" name="include_images_media" {% if include_images_media %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+            <span>Importar imagens do ZIP</span>
+            <span class="info-tip" tabindex="0" data-tip="Inclui imagens na visualização da conversa e no HTML exportado. Não faz OCR do conteúdo da imagem." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+          </label>
+
+          <label class="toggle">
+            <input type="checkbox" name="include_videos_media" {% if include_videos_media %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+            <span>Importar vídeos do ZIP</span>
+            <span class="info-tip" tabindex="0" data-tip="Inclui vídeos na visualização da conversa e no HTML exportado. O vídeo não é transcrito automaticamente." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+          </label>
+
+          <label class="toggle">
+            <input type="checkbox" name="include_stickers_media" {% if include_stickers_media %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+            <span>Importar figurinhas do ZIP</span>
+            <span class="info-tip" tabindex="0" data-tip="Inclui figurinhas (normalmente .webp) como anexos exibíveis na conversa e no HTML exportado." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+          </label>
+
+          <label class="toggle">
+            <input type="checkbox" name="include_documents_media" {% if include_documents_media %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+            <span>Importar documentos/outros arquivos do ZIP</span>
+            <span class="info-tip" tabindex="0" data-tip="Inclui documentos e outros anexos na conversa e no HTML exportado com link para abrir/baixar." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+          </label>
+        </details>
+
+        <details class="runtime-settings project-collapsible">
+          <summary>Recursos de processamento</summary>
+          <div class="runtime-grid">
+            <label>Workers paralelos</label>
+            <input type="number" name="runtime_workers" min="1" max="32" value="{% if configured_workers != 'auto' %}{{ configured_workers }}{% endif %}" placeholder="auto" {% if is_locked %}disabled{% endif %} />
+
+            <label>Modelo Whisper</label>
+            <select name="runtime_model_size" {% if is_locked %}disabled{% endif %}>
+              <option value="auto" {% if configured_model_size == "auto" %}selected{% endif %}>auto</option>
+              <option value="tiny" {% if configured_model_size == "tiny" %}selected{% endif %}>tiny</option>
+              <option value="base" {% if configured_model_size == "base" %}selected{% endif %}>base</option>
+              <option value="small" {% if configured_model_size == "small" %}selected{% endif %}>small</option>
+              <option value="medium" {% if configured_model_size == "medium" %}selected{% endif %}>medium</option>
+              <option value="large-v3" {% if configured_model_size == "large-v3" %}selected{% endif %}>large-v3</option>
+            </select>
+
+            <label>Dispositivo</label>
+            <select name="runtime_device" {% if is_locked %}disabled{% endif %}>
+              <option value="auto" {% if configured_device == "auto" %}selected{% endif %}>auto</option>
+              <option value="cpu" {% if configured_device == "cpu" %}selected{% endif %}>cpu</option>
+              <option value="cuda" {% if configured_device == "cuda" %}selected{% endif %}>cuda</option>
+            </select>
+
+            <label>Compute type</label>
+            <select name="runtime_compute_type" {% if is_locked %}disabled{% endif %}>
+              <option value="auto" {% if configured_compute_type == "auto" %}selected{% endif %}>auto</option>
+              <option value="int8" {% if configured_compute_type == "int8" %}selected{% endif %}>int8</option>
+              <option value="float16" {% if configured_compute_type == "float16" %}selected{% endif %}>float16</option>
+              <option value="float32" {% if configured_compute_type == "float32" %}selected{% endif %}>float32</option>
+            </select>
+          </div>
+          <div class="runtime-actions">
+            <button type="button" id="projectAutodetectBtn" class="btn btn-secondary" {% if is_locked %}disabled{% endif %}>Auto-detectar recursos</button>
+          </div>
+          <div id="runtimePressureCard" class="runtime-pressure hidden" aria-live="polite">
+            <div class="runtime-pressure-head">
+              <strong>Workers efetivos sugeridos agora:</strong>
+              <span id="runtimeSuggestedWorkers" class="mono">-</span>
+            </div>
+            <div class="runtime-pressure-grid">
+              <span id="runtimeLoadInfo" class="mono">Carga: -</span>
+              <span id="runtimeMemInfo" class="mono">Memória livre: -</span>
+              <span id="runtimeSourceInfo" class="mono">Fonte: -</span>
+            </div>
+          </div>
+          <p class="hint" id="projectRuntimeHint"></p>
+        </details>
+
+        <p class="hint">Selecione os arquivos que devem ser processados.</p>
+        <button id="saveSettingsBtn" type="submit" class="btn btn-primary" {% if is_locked %}disabled{% endif %}>Salvar configurações</button>
+      </form>
+
+      <div id="projectActions" class="actions project-actions is-hydrating">
+        <form id="startForm" action="/projects/{{ project.id }}/start" method="post" class="hidden">
+          <button id="startBtn" type="submit" class="btn btn-primary">{{ start_button_label }}</button>
+        </form>
+
+        <form id="stopForm" action="/projects/{{ project.id }}/stop" method="post" class="hidden">
+          <button id="stopBtn" type="submit" class="btn btn-danger">Parar transcrição</button>
+        </form>
+
+        <button id="stoppingBtn" type="button" class="btn btn-danger hidden" disabled>Parando transcrição...</button>
+        <button id="projectStateBtn" type="button" class="btn btn-secondary hidden" disabled>Aguardando importação</button>
+
+        {% if project.status == "archived" %}
+        <form action="/projects/{{ project.id }}/restore" method="post">
+          <button id="restoreBtn" class="btn btn-secondary" type="submit" {% if is_locked %}disabled{% endif %}>Restaurar</button>
+        </form>
+        {% else %}
+        <form action="/projects/{{ project.id }}/archive" method="post">
+          <button id="archiveBtn" class="btn btn-warning" type="submit" {% if is_locked %}disabled{% endif %}>Arquivar</button>
+        </form>
+        {% endif %}
+
+        <form action="/projects/{{ project.id }}/delete" method="post" onsubmit="return confirm('Excluir este projeto? Essa ação remove os arquivos.')">
+          <button id="deleteBtn" class="btn btn-danger" type="submit" {% if is_locked %}disabled{% endif %}>Excluir</button>
+        </form>
+
+        <a class="btn btn-ghost" href="/">Voltar</a>
+      </div>
+    </aside>
+  </div>
+
+  {% if project.merged_text_path %}
+  <p id="mergedActions" class="merged-actions">
+    <a class="btn btn-primary" href="/projects/{{ project.id }}/download-merged">Baixar texto final com transcrições</a>
+    <a class="btn btn-primary" href="/projects/{{ project.id }}/conversation">Visualizar conversa</a>
+  </p>
+  {% endif %}
+
+</section>
+
+<script>
+  const projectId = {{ project.id }};
+  const projectStatusEl = document.getElementById("projectStatus");
+  const projectProgressLabel = document.getElementById("projectProgressLabel");
+  const projectProgressFill = document.getElementById("projectProgressFill");
+  const audioTable = document.getElementById("audioTable");
+  const settingsForm = document.getElementById("settingsForm");
+  const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+  const projectAutodetectBtn = document.getElementById("projectAutodetectBtn");
+  const projectRuntimeHint = document.getElementById("projectRuntimeHint");
+  const runtimePressureCard = document.getElementById("runtimePressureCard");
+  const runtimeSuggestedWorkers = document.getElementById("runtimeSuggestedWorkers");
+  const runtimeLoadInfo = document.getElementById("runtimeLoadInfo");
+  const runtimeMemInfo = document.getElementById("runtimeMemInfo");
+  const runtimeSourceInfo = document.getElementById("runtimeSourceInfo");
+  const importMessage = document.getElementById("importMessage");
+  const footerDoneCount = document.getElementById("footerDoneCount");
+  const footerSkippedCount = document.getElementById("footerSkippedCount");
+  const footerTotalFiles = document.getElementById("footerTotalFiles");
+  const footerSelectedCount = document.getElementById("footerSelectedCount");
+  const footerTxStart = document.getElementById("footerTxStart");
+  const footerTxEnd = document.getElementById("footerTxEnd");
+  const footerTxRunElapsed = document.getElementById("footerTxRunElapsed");
+  const footerTxTotalElapsed = document.getElementById("footerTxTotalElapsed");
+  const startForm = document.getElementById("startForm");
+  const startBtn = document.getElementById("startBtn");
+  const stopForm = document.getElementById("stopForm");
+  const stopBtn = document.getElementById("stopBtn");
+  const stoppingBtn = document.getElementById("stoppingBtn");
+  const projectStateBtn = document.getElementById("projectStateBtn");
+  const projectActions = document.getElementById("projectActions");
+  const archiveBtn = document.getElementById("archiveBtn");
+  const restoreBtn = document.getElementById("restoreBtn");
+  const deleteBtn = document.getElementById("deleteBtn");
+  const tablePager = document.getElementById("tablePager");
+  const prevPageBtn = document.getElementById("prevPageBtn");
+  const nextPageBtn = document.getElementById("nextPageBtn");
+  const pageInfo = document.getElementById("pageInfo");
+  const audioTbody = audioTable ? audioTable.querySelector("tbody") : null;
+  const startDefaultLabel = "{{ start_button_label | e }}";
+  const initialRawStatus = "{{ project.status }}";
+  const initialCanStart = {{ "true" if can_start else "false" }};
+  const rowById = new Map();
+  const rowStateById = new Map();
+  const rowOrder = [];
+  let rowOrderDirty = false;
+  const pendingFinalizeDone = new Set();
+  let deferredResortTimer = null;
+  const audioProgressTargets = new Map();
+  const audioProgressDisplayed = new Map();
+  let activeMiniAudio = null;
+  let projectProgressTarget = Number.parseInt((projectProgressLabel?.textContent || "0").replace("%", ""), 10) || 0;
+  let projectProgressDisplayed = projectProgressTarget;
+  let progressTicker = null;
+  let currentPage = 1;
+  const pageSize = 25;
+  let streamClosed = false;
+  let settingsInitialSnapshot = "";
+
+  function formatMiniAudioTime(seconds) {
+    const n = Number(seconds || 0);
+    if (!Number.isFinite(n) || n < 0) return "00:00";
+    const total = Math.floor(n);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  function updateMiniAudioTime(shell) {
+    const audio = shell.querySelector("audio");
+    const time = shell.querySelector(".mini-audio-time");
+    if (!audio || !time) return;
+    const current = formatMiniAudioTime(audio.currentTime || 0);
+    const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? formatMiniAudioTime(audio.duration) : "--:--";
+    time.textContent = `${current} / ${duration}`;
+  }
+
+  function updateMiniAudioProgress(shell) {
+    const audio = shell.querySelector("audio");
+    const seek = shell.querySelector(".mini-audio-seek");
+    if (!audio || !seek) return;
+    const duration = Number(audio.duration || 0);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      seek.value = "0";
+      return;
+    }
+    const pct = (Number(audio.currentTime || 0) / duration) * 100;
+    seek.value = String(Math.max(0, Math.min(100, pct)));
+  }
+
+  function hydrateMiniAudio(audio) {
+    if (!audio || audio.dataset.hydrated === "1") return;
+    const src = audio.dataset.src || "";
+    if (!src) return;
+    audio.src = src;
+    audio.preload = "metadata";
+    audio.dataset.hydrated = "1";
+    audio.load();
+  }
+
+  function pauseOtherMiniAudios(currentAudio) {
+    if (activeMiniAudio && activeMiniAudio !== currentAudio && !activeMiniAudio.paused) {
+      activeMiniAudio.pause();
+    }
+  }
+
+  function initMiniAudioPlayers(root = document) {
+    root.querySelectorAll(".mini-audio").forEach((shell) => {
+      if (shell.dataset.bound === "1") return;
+      shell.dataset.bound = "1";
+
+      const btn = shell.querySelector(".mini-audio-btn");
+      const seek = shell.querySelector(".mini-audio-seek");
+      const audio = shell.querySelector("audio");
+      if (!btn || !seek || !audio) return;
+
+      const updateButton = () => {
+        const playing = !audio.paused && !audio.ended;
+        btn.innerHTML = playing
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6h3v12H8zM13 6h3v12h-3z"/></svg>'
+          : '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6v12l10-6z"/></svg>';
+        btn.setAttribute("aria-label", playing ? "Pausar áudio" : "Reproduzir áudio");
+        btn.classList.toggle("is-playing", playing);
+      };
+
+      const hydrate = () => hydrateMiniAudio(audio);
+
+      btn.addEventListener("pointerdown", hydrate, { passive: true });
+      btn.addEventListener("focus", hydrate);
+
+      btn.addEventListener("click", async () => {
+        try {
+          if (audio.paused) {
+            hydrate();
+            pauseOtherMiniAudios(audio);
+            await audio.play();
+          } else {
+            audio.pause();
+          }
+        } catch (_) {}
+        updateButton();
+      });
+
+      seek.addEventListener("pointerdown", hydrate, { passive: true });
+      seek.addEventListener("input", () => {
+        hydrate();
+        const duration = Number(audio.duration || 0);
+        if (!Number.isFinite(duration) || duration <= 0) return;
+        audio.currentTime = (Number(seek.value || 0) / 100) * duration;
+        updateMiniAudioTime(shell);
+      });
+
+      audio.addEventListener("loadedmetadata", () => {
+        updateMiniAudioTime(shell);
+        updateMiniAudioProgress(shell);
+      });
+      audio.addEventListener("timeupdate", () => {
+        updateMiniAudioTime(shell);
+        updateMiniAudioProgress(shell);
+      });
+      audio.addEventListener("play", () => {
+        pauseOtherMiniAudios(audio);
+        activeMiniAudio = audio;
+        updateButton();
+      });
+      audio.addEventListener("pause", () => {
+        if (activeMiniAudio === audio && audio.paused) activeMiniAudio = null;
+        updateButton();
+      });
+      audio.addEventListener("ended", () => {
+        if (activeMiniAudio === audio) activeMiniAudio = null;
+        updateButton();
+        updateMiniAudioProgress(shell);
+      });
+
+      updateButton();
+      updateMiniAudioTime(shell);
+      updateMiniAudioProgress(shell);
+    });
+  }
+
+  function miniAudioMarkup(audioId, audioUrl) {
+    return `<div class="mini-audio" data-audio-id="${audioId}">
+      <button type="button" class="mini-audio-btn" aria-label="Reproduzir áudio"></button>
+      <input type="range" class="mini-audio-seek" min="0" max="100" step="0.1" value="0" aria-label="Progresso do áudio" />
+      <span class="mono mini-audio-time">00:00 / --:--</span>
+      <audio preload="none" data-src="${audioUrl}"></audio>
+    </div>`;
+  }
+  if (audioTable) {
+    for (const row of audioTable.querySelectorAll("tbody tr[data-audio-id]")) {
+      const audioId = String(row.dataset.audioId);
+      rowById.set(audioId, row);
+      rowOrder.push(audioId);
+      const statusEl = row.querySelector(".audio-status");
+      row.dataset.visualStatus = statusEl ? statusEl.textContent.trim() : "";
+      const progressLabel = row.querySelector(".audio-progress-label");
+      const pct = Number.parseInt((progressLabel?.textContent || "0").replace("%", ""), 10) || 0;
+      audioProgressDisplayed.set(audioId, pct);
+      audioProgressTargets.set(audioId, pct);
+    }
+  }
+  const pollDelayMs = rowById.size > 300 ? 2000 : 1000;
+
+  function ensureProgressTicker() {
+    if (progressTicker) return;
+    progressTicker = window.setInterval(() => {
+      let hasWork = false;
+      let needsResort = false;
+      if (projectProgressDisplayed < projectProgressTarget) {
+        projectProgressDisplayed += 1;
+        projectProgressLabel.textContent = `${projectProgressDisplayed}%`;
+        projectProgressFill.style.width = `${projectProgressDisplayed}%`;
+        hasWork = true;
+      }
+
+      for (const [id, target] of audioProgressTargets.entries()) {
+        const displayed = audioProgressDisplayed.get(id) ?? 0;
+        if (displayed >= target) continue;
+        const step = pendingFinalizeDone.has(id) ? 3 : 1;
+        const next = Math.min(target, displayed + step);
+        audioProgressDisplayed.set(id, next);
+        const row = rowById.get(id);
+        if (row) {
+          const fill = row.querySelector(".progress-fill");
+          const label = row.querySelector(".audio-progress-label");
+          if (fill) fill.style.width = `${next}%`;
+          if (label) label.textContent = `${next}%`;
+          if (pendingFinalizeDone.has(id) && next >= 100) {
+            pendingFinalizeDone.delete(id);
+            row.dataset.visualStatus = "done";
+            const statusEl = row.querySelector(".audio-status");
+            if (statusEl) {
+              statusEl.textContent = "done";
+              statusEl.className = "badge done audio-status";
+            }
+            needsResort = true;
+          }
+        }
+        hasWork = true;
+      }
+
+      if (needsResort) {
+        if (deferredResortTimer) window.clearTimeout(deferredResortTimer);
+        deferredResortTimer = window.setTimeout(() => {
+          sortRowsByStatus();
+          renderPage();
+          deferredResortTimer = null;
+        }, 360);
+      }
+
+      if (!hasWork) {
+        window.clearInterval(progressTicker);
+        progressTicker = null;
+      }
+    }, 50);
+  }
+
+  function statusPriority(status) {
+    switch ((status || "").toLowerCase()) {
+      case "processing":
+      case "stopping":
+        return 0;
+      case "finalizing":
+        return 1;
+      case "pending":
+      case "queued":
+      case "importing":
+        return 2;
+      case "error":
+      case "failed":
+      case "import_error":
+        return 3;
+      case "skipped":
+      case "canceled":
+      case "stopped":
+        return 4;
+      case "done":
+        return 5;
+      default:
+        return 3;
+    }
+  }
+
+  function rowStatus(audioId) {
+    const row = rowById.get(String(audioId));
+    if (!row) return "";
+    if (row.dataset.visualStatus) return row.dataset.visualStatus;
+    const statusEl = row.querySelector(".audio-status");
+    return statusEl ? statusEl.textContent.trim() : "";
+  }
+
+  function sortRowsByStatus() {
+    rowOrder.sort((a, b) => {
+      const pa = statusPriority(rowStatus(a));
+      const pb = statusPriority(rowStatus(b));
+      if (pa !== pb) return pa - pb;
+      return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+    });
+    rowOrderDirty = true;
+  }
+
+  function applyRowOrderIfNeeded() {
+    if (!rowOrderDirty || !audioTbody) return;
+    const fragment = document.createDocumentFragment();
+    for (const id of rowOrder) {
+      const row = rowById.get(String(id));
+      if (row) fragment.appendChild(row);
+    }
+    audioTbody.appendChild(fragment);
+    rowOrderDirty = false;
+  }
+
+  function renderPage() {
+    if (!rowOrder.length || !tablePager) return;
+    applyRowOrderIfNeeded();
+    const totalPages = Math.max(1, Math.ceil(rowOrder.length / pageSize));
+    currentPage = Math.max(1, Math.min(currentPage, totalPages));
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    for (let i = 0; i < rowOrder.length; i++) {
+      const row = rowById.get(rowOrder[i]);
+      if (!row) continue;
+      const visible = i >= start && i < end;
+      row.style.display = visible ? "" : "none";
+      if (visible) initMiniAudioPlayers(row);
+    }
+    pageInfo.textContent = `Página ${currentPage} de ${totalPages}`;
+    prevPageBtn.disabled = currentPage <= 1;
+    nextPageBtn.disabled = currentPage >= totalPages;
+    tablePager.classList.toggle("hidden", totalPages <= 1);
+  }
+
+  function setPrimaryAction(rawStatus, canStart, startLabel) {
+    if (startForm) startForm.classList.add("hidden");
+    if (stopForm) stopForm.classList.add("hidden");
+    if (stoppingBtn) stoppingBtn.classList.add("hidden");
+    if (projectStateBtn) projectStateBtn.classList.add("hidden");
+
+    if (rawStatus === "stopping") {
+      if (stoppingBtn) {
+        stoppingBtn.classList.remove("hidden");
+        stoppingBtn.disabled = true;
+      }
+      return;
+    }
+
+    if (rawStatus === "processing" || rawStatus === "queued") {
+      if (stopForm) stopForm.classList.remove("hidden");
+      if (stopBtn) {
+        stopBtn.disabled = false;
+        stopBtn.textContent = "Parar transcrição";
+      }
+      return;
+    }
+
+    if (canStart) {
+      if (startForm) startForm.classList.remove("hidden");
+      if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.textContent = startLabel || "Iniciar transcrição";
+      }
+      return;
+    }
+
+    if (projectStateBtn) {
+      projectStateBtn.classList.remove("hidden");
+      projectStateBtn.disabled = true;
+      if (rawStatus === "done") {
+        projectStateBtn.textContent = "Transcrição concluída";
+      } else {
+        projectStateBtn.textContent = "Aguardando importação";
+      }
+    }
+  }
+
+  function setLockedActionsByStatus(rawStatus) {
+    const lockedStatuses = ["processing", "queued", "stopping", "importing"];
+    const locked = lockedStatuses.includes(rawStatus);
+    if (archiveBtn) archiveBtn.disabled = locked;
+    if (restoreBtn) restoreBtn.disabled = locked;
+    if (deleteBtn) deleteBtn.disabled = locked;
+  }
+
+  function isSettingsLocked(rawStatus) {
+    return ["processing", "queued", "stopping", "importing"].includes(rawStatus || "");
+  }
+
+  function refreshSettingsDirtyState() {
+    if (!settingsForm || !saveSettingsBtn) return;
+    const locked = isSettingsLocked(projectStatusEl?.dataset?.rawStatus || "");
+    if (locked) {
+      saveSettingsBtn.disabled = true;
+      return;
+    }
+    const current = snapshotForm(settingsForm);
+    saveSettingsBtn.disabled = current === settingsInitialSnapshot;
+  }
+
+  function setSettingsLockedByStatus(rawStatus) {
+    const locked = isSettingsLocked(rawStatus);
+    if (settingsForm) {
+      const controls = settingsForm.querySelectorAll("input, select, button");
+      controls.forEach((el) => {
+        if (!el) return;
+        el.disabled = locked;
+      });
+    }
+    const selectedCheckboxes = document.querySelectorAll("input[type='checkbox'][name='selected_audio_ids'][form='settingsForm']");
+    selectedCheckboxes.forEach((el) => {
+      el.disabled = locked;
+    });
+    refreshSettingsDirtyState();
+  }
+
+  function createAudioRow(audio) {
+    if (!audioTbody) return null;
+    const row = document.createElement("tr");
+    row.dataset.audioId = String(audio.id);
+    row.dataset.visualStatus = String(audio.status || "pending");
+    const isLocked = isSettingsLocked(projectStatusEl.dataset.rawStatus || "");
+    const checkedAttr = audio.selected === false ? "" : "checked";
+    const disabledAttr = isLocked ? "disabled" : "";
+    const audioPlayer = audio.audio_url
+      ? miniAudioMarkup(audio.id, audio.audio_url)
+      : "-";
+    const transcript = audio.transcript_path
+      ? `<a href="/files/${String(audio.transcript_path).replace("data/", "")}" target="_blank">baixar</a>`
+      : "-";
+
+    row.innerHTML = `
+      <td><input type="checkbox" form="settingsForm" name="selected_audio_ids" value="${audio.id}" ${checkedAttr} ${disabledAttr} /></td>
+      <td>${audio.name || "-"}</td>
+      <td class="audio-size">${audio.file_size_human || "-"}</td>
+      <td class="audio-duration">${audio.duration_human || "-"}</td>
+      <td class="audio-player-cell">${audioPlayer}</td>
+      <td>
+        <div class="progress-col">
+          <span class="badge ${audio.status || "pending"} audio-status">${audio.status || "pending"}</span>
+          <div class="progress-track"><div class="progress-fill" style="width: ${Number(audio.progress_pct || 0)}%"></div></div>
+          <span class="mono audio-progress-label">${Number(audio.progress_pct || 0)}%</span>
+        </div>
+      </td>
+      <td class="audio-ref">${audio.line_hint ? "sim" : "-"}</td>
+      <td class="audio-transcript-link">${transcript}</td>
+    `;
+    return row;
+  }
+
+  if (prevPageBtn && nextPageBtn) {
+    prevPageBtn.addEventListener("click", () => {
+      currentPage -= 1;
+      renderPage();
+    });
+    nextPageBtn.addEventListener("click", () => {
+      currentPage += 1;
+      renderPage();
+    });
+  }
+  sortRowsByStatus();
+  renderPage();
+  setPrimaryAction(initialRawStatus, initialCanStart, startDefaultLabel);
+  setLockedActionsByStatus(initialRawStatus);
+  setSettingsLockedByStatus(initialRawStatus);
+  if (projectActions) {
+    projectActions.classList.remove("is-hydrating");
+  }
+
+  const LIVE_STATUSES = ["processing", "queued", "stopping", "importing"];
+
+  function snapshotForm(form) {
+    const data = new FormData(form);
+    const entries = [];
+    for (const [key, value] of data.entries()) {
+      entries.push(`${key}=${value}`);
+    }
+    entries.sort();
+    return entries.join("&");
+  }
+
+  function renderRuntimePressure(s, sourceLabel) {
+    if (!runtimePressureCard || !runtimeSuggestedWorkers || !runtimeLoadInfo || !runtimeMemInfo || !runtimeSourceInfo) return;
+    const rp = s && s.runtime_pressure ? s.runtime_pressure : null;
+    const workers = Number(s && s.workers ? s.workers : 0);
+    runtimeSuggestedWorkers.textContent = workers > 0 ? String(workers) : "-";
+
+    if (rp) {
+      const load1 = typeof rp.load1 === "number" ? rp.load1.toFixed(2) : "-";
+      const loadRatio = typeof rp.load_ratio === "number" ? Math.round(rp.load_ratio * 100) : null;
+      const memAvail = typeof rp.mem_available_gb === "number" ? `${rp.mem_available_gb.toFixed(1)} GB` : "-";
+      const memRatio = typeof rp.mem_ratio === "number" ? Math.round(rp.mem_ratio * 100) : null;
+      runtimeLoadInfo.textContent = `Carga: ${load1}${loadRatio !== null ? ` (${loadRatio}% por CPU)` : ""}`;
+      runtimeMemInfo.textContent = `Memória livre: ${memAvail}${memRatio !== null ? ` (${memRatio}%)` : ""}`;
+    } else {
+      runtimeLoadInfo.textContent = "Carga: -";
+      runtimeMemInfo.textContent = "Memória livre: -";
+    }
+
+    runtimeSourceInfo.textContent = `Fonte: ${sourceLabel || "sugestão"}`;
+    runtimePressureCard.classList.remove("hidden");
+  }
+
+  if (settingsForm) {
+    settingsInitialSnapshot = snapshotForm(settingsForm);
+    if (saveSettingsBtn && !saveSettingsBtn.disabled) {
+      saveSettingsBtn.disabled = true;
+    }
+    const refreshDirty = () => {
+      refreshSettingsDirtyState();
+    };
+    settingsForm.addEventListener("change", refreshDirty);
+    settingsForm.addEventListener("input", refreshDirty);
+    settingsForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      if (saveSettingsBtn.disabled) return;
+      saveSettingsBtn.disabled = true;
+      const originalLabel = saveSettingsBtn.textContent;
+      saveSettingsBtn.textContent = "Salvando...";
+      try {
+        const response = await fetch(`/api/projects/${projectId}/settings`, {
+          method: "POST",
+          body: new FormData(settingsForm),
+        });
+        if (!response.ok) throw new Error("settings_save_failed");
+        const payload = await response.json();
+        applyPayload(payload);
+        settingsInitialSnapshot = snapshotForm(settingsForm);
+        refreshSettingsDirtyState();
+        if (projectRuntimeHint) projectRuntimeHint.textContent = "Configurações salvas.";
+      } catch (_) {
+        saveSettingsBtn.disabled = false;
+      } finally {
+        saveSettingsBtn.textContent = originalLabel;
+      }
+    });
+  }
+
+  if (projectAutodetectBtn) {
+    projectAutodetectBtn.addEventListener("click", async () => {
+      try {
+        const response = await fetch("/api/system/resource-suggestion", { cache: "no-store" });
+        if (!response.ok) return;
+        const s = await response.json();
+        settingsForm.querySelector("[name='runtime_workers']").value = s.workers || "";
+        settingsForm.querySelector("[name='runtime_model_size']").value = s.model_size || "auto";
+        settingsForm.querySelector("[name='runtime_device']").value = s.device || "auto";
+        settingsForm.querySelector("[name='runtime_compute_type']").value = s.compute_type || "auto";
+        if (projectRuntimeHint) {
+          projectRuntimeHint.textContent = `Sugestão aplicada: workers=${s.workers}, modelo=${s.model_size}, device=${s.device}, compute=${s.compute_type}.`;
+        }
+        renderRuntimePressure(s, "auto-detectar");
+        const ev = new Event("change", { bubbles: true });
+        settingsForm.dispatchEvent(ev);
+      } catch (_) {}
+    });
+  }
+
+  (async () => {
+    try {
+      const response = await fetch("/api/system/resource-suggestion", { cache: "no-store" });
+      if (!response.ok) return;
+      const s = await response.json();
+      renderRuntimePressure(s, "auto");
+    } catch (_) {}
+  })();
+
+  if (startForm && startBtn) {
+    startForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      startBtn.disabled = true;
+      startBtn.textContent = "Iniciando...";
+      try {
+        const response = await fetch(`/api/projects/${projectId}/start`, { method: "POST" });
+        if (!response.ok) throw new Error("start_failed");
+        const payload = await response.json();
+        applyPayload(payload);
+        streamClosed = false;
+        startEventStream();
+      } catch (_) {
+        startBtn.disabled = false;
+        startBtn.textContent = startDefaultLabel;
+      }
+    });
+  }
+
+  if (stopForm && stopBtn) {
+    stopForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      stopBtn.disabled = true;
+      stopBtn.textContent = "Parando...";
+      try {
+        const response = await fetch(`/api/projects/${projectId}/stop`, { method: "POST" });
+        if (!response.ok) throw new Error("stop_failed");
+        const payload = await response.json();
+        applyPayload(payload);
+      } catch (_) {
+        stopBtn.disabled = false;
+        stopBtn.textContent = "Parar transcrição";
+      }
+    });
+  }
+
+  function applyPayload(payload) {
+    if (!payload) return;
+    const rawStatus = String(payload.project_status || "");
+    const displayStatus = String(payload.project_status_display || rawStatus);
+    const displayClass = String(payload.project_status_display_class || rawStatus || "draft");
+    projectStatusEl.dataset.rawStatus = rawStatus;
+    projectStatusEl.textContent = displayStatus;
+    projectStatusEl.className = `badge ${displayClass}`;
+    projectProgressTarget = Number(payload.project_progress_pct || 0);
+    if (projectProgressDisplayed > projectProgressTarget) {
+      projectProgressDisplayed = projectProgressTarget;
+      projectProgressLabel.textContent = `${projectProgressDisplayed}%`;
+      projectProgressFill.style.width = `${projectProgressDisplayed}%`;
+    } else {
+      ensureProgressTicker();
+    }
+
+    const canStart = Boolean(payload.can_start);
+    const startLabel = String(payload.start_button_label || ((payload.project_status_display === "incompleto") ? "Continuar transcrição" : "Iniciar transcrição"));
+    setPrimaryAction(rawStatus, canStart, startLabel);
+    setLockedActionsByStatus(rawStatus);
+    setSettingsLockedByStatus(rawStatus);
+
+    if (payload.import_state && importMessage) {
+      if (payload.project_status === "importing" || payload.project_status === "import_error") {
+        importMessage.classList.remove("hidden");
+        importMessage.textContent = payload.import_state.message || "Processando importação...";
+      } else {
+        importMessage.classList.add("hidden");
+      }
+    }
+
+    if (footerDoneCount) {
+      const doneByPayload = Number(payload.footer_done_count ?? -1);
+      if (doneByPayload >= 0) {
+        footerDoneCount.textContent = String(doneByPayload);
+      }
+    }
+    if (footerSkippedCount) {
+      const skippedByPayload = Number(payload.footer_skipped_count ?? -1);
+      if (skippedByPayload >= 0) {
+        footerSkippedCount.textContent = String(skippedByPayload);
+      }
+    }
+    if (footerSelectedCount) {
+      const selectedByPayload = Number(payload.footer_selected_files ?? -1);
+      if (selectedByPayload >= 0) {
+        footerSelectedCount.textContent = String(selectedByPayload);
+      }
+    }
+    if (footerTxStart && payload.transcription_started_at) {
+      footerTxStart.textContent = payload.transcription_started_at;
+    }
+    if (footerTxEnd && payload.transcription_finished_at) {
+      footerTxEnd.textContent = payload.transcription_finished_at;
+    }
+    if (footerTxRunElapsed && payload.transcription_run_elapsed_human) {
+      footerTxRunElapsed.textContent = payload.transcription_run_elapsed_human;
+    }
+    if (footerTxTotalElapsed && payload.transcription_total_elapsed_human) {
+      footerTxTotalElapsed.textContent = payload.transcription_total_elapsed_human;
+    }
+
+    const addedAudios = payload.audios_added || [];
+    const changedAudios = payload.audios || payload.audios_changed || [];
+    const removedAudios = payload.audios_removed || [];
+
+    for (const removedId of removedAudios) {
+      rowStateById.delete(Number(removedId));
+      pendingFinalizeDone.delete(String(removedId));
+      const row = rowById.get(String(removedId));
+      if (row) row.remove();
+      rowById.delete(String(removedId));
+      const idx = rowOrder.indexOf(String(removedId));
+      if (idx >= 0) rowOrder.splice(idx, 1);
+      rowOrderDirty = true;
+      audioProgressDisplayed.delete(String(removedId));
+      audioProgressTargets.delete(String(removedId));
+    }
+
+    for (const audio of addedAudios) {
+      const audioId = String(audio.id);
+      if (rowById.has(audioId)) continue;
+      const row = createAudioRow(audio);
+      if (!row) continue;
+      initMiniAudioPlayers(row);
+      rowById.set(audioId, row);
+      rowOrder.push(audioId);
+      rowOrderDirty = true;
+      audioProgressDisplayed.set(audioId, Number(audio.progress_pct || 0));
+      audioProgressTargets.set(audioId, Number(audio.progress_pct || 0));
+      rowStateById.set(
+        Number(audio.id),
+        [
+          audio.status,
+          audio.progress_pct,
+          audio.line_hint ? 1 : 0,
+          audio.file_size_human || "",
+          audio.duration_human || "",
+          audio.transcript_path || "",
+        ].join("|")
+      );
+    }
+
+    const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+
+    for (const audio of changedAudios) {
+      const row = rowById.get(String(audio.id));
+      if (!row) continue;
+
+      const stateKey = [
+        audio.status,
+        audio.progress_pct,
+        audio.line_hint ? 1 : 0,
+        audio.transcript_path || "",
+        typeof audio.selected === "boolean" ? (audio.selected ? 1 : 0) : "",
+      ].join("|");
+      if (rowStateById.get(audio.id) === stateKey) {
+        continue;
+      }
+      rowStateById.set(audio.id, stateKey);
+
+      const statusEl = row.querySelector(".audio-status");
+      const audioKey = String(audio.id);
+      const targetPctRaw = Number(audio.progress_pct || 0);
+      const currentPct = audioProgressDisplayed.get(audioKey) ?? 0;
+
+      if (hasOwn(audio, "status") && audio.status === "done" && currentPct < 100) {
+        pendingFinalizeDone.add(audioKey);
+        row.dataset.visualStatus = "finalizing";
+        statusEl.textContent = "finalizing";
+        statusEl.className = "badge finalizing audio-status";
+      } else if (hasOwn(audio, "status")) {
+        pendingFinalizeDone.delete(audioKey);
+        row.dataset.visualStatus = audio.status;
+        statusEl.textContent = audio.status;
+        statusEl.className = `badge ${audio.status} audio-status`;
+      }
+
+      const targetPct = pendingFinalizeDone.has(audioKey) ? 100 : targetPctRaw;
+      audioProgressTargets.set(audioKey, targetPct);
+      if (targetPct <= currentPct) {
+      const progressFill = row.querySelector(".progress-fill");
+      const progressLabel = row.querySelector(".audio-progress-label");
+        if (progressFill) progressFill.style.width = `${targetPct}%`;
+        if (progressLabel) progressLabel.textContent = `${targetPct}%`;
+        audioProgressDisplayed.set(audioKey, targetPct);
+      } else {
+        ensureProgressTicker();
+      }
+      if (hasOwn(audio, "line_hint")) {
+        row.querySelector(".audio-ref").textContent = audio.line_hint ? "sim" : "-";
+      }
+      if (hasOwn(audio, "file_size_human")) {
+        row.querySelector(".audio-size").textContent = audio.file_size_human || "-";
+      }
+      if (hasOwn(audio, "duration_human")) {
+        row.querySelector(".audio-duration").textContent = audio.duration_human || "-";
+      }
+      const selectInput = row.querySelector("input[type='checkbox'][name='selected_audio_ids']");
+      if (selectInput && typeof audio.selected === "boolean") {
+        selectInput.checked = audio.selected;
+      }
+      const playerCol = row.querySelector(".audio-player-cell");
+      if (playerCol && audio.audio_url && !playerCol.querySelector(".mini-audio")) {
+        playerCol.innerHTML = miniAudioMarkup(audio.id, audio.audio_url);
+        initMiniAudioPlayers(playerCol);
+      }
+
+      const linkCol = row.querySelector(".audio-transcript-link");
+      if (audio.transcript_path) {
+        const relative = audio.transcript_path.replace("data/", "");
+        linkCol.innerHTML = `<a href="/files/${relative}" target="_blank">baixar</a>`;
+      } else if (hasOwn(audio, "transcript_path")) {
+        linkCol.textContent = "-";
+      }
+    }
+
+    if (changedAudios.length || addedAudios.length || removedAudios.length) {
+      if (pendingFinalizeDone.size === 0) {
+        sortRowsByStatus();
+      }
+      renderPage();
+    }
+    if (footerTotalFiles) {
+      const totalFiles = Number(payload.footer_total_files || rowOrder.length || 0);
+      footerTotalFiles.textContent = String(totalFiles);
+    }
+
+    if (payload.merged_text_path) {
+      const existing = document.getElementById("mergedActions");
+      if (!existing) {
+        const p = document.createElement("p");
+        p.id = "mergedActions";
+        p.className = "merged-actions";
+        p.innerHTML = `<a class="btn btn-primary" href="/projects/${projectId}/download-merged">Baixar texto final com transcrições</a><a class="btn btn-primary" href="/projects/${projectId}/conversation">Visualizar conversa</a>`;
+        projectStatusEl.closest("section").appendChild(p);
+      }
+    }
+
+    return true;
+  }
+
+  async function refreshStatus() {
+    if (streamClosed) return;
+    const response = await fetch(`/api/projects/${projectId}/status`, { cache: "no-store" });
+    if (!response.ok) return;
+    const payload = await response.json();
+    const keep = applyPayload(payload);
+    if (!keep) return;
+
+    if (LIVE_STATUSES.includes(payload.project_status)) {
+      setTimeout(refreshStatus, pollDelayMs);
+    }
+  }
+
+  function startEventStream() {
+    if (!window.EventSource) {
+      setTimeout(refreshStatus, 600);
+      return;
+    }
+    const existing = window.__projectEventSource;
+    if (existing && existing.readyState !== EventSource.CLOSED) {
+      return;
+    }
+    const source = new EventSource(`/api/projects/${projectId}/events`);
+    window.__projectEventSource = source;
+    const onStatus = (ev) => {
+      try {
+        const payload = JSON.parse(ev.data);
+        const keep = applyPayload(payload);
+        if (!keep) {
+          streamClosed = true;
+          source.close();
+        }
+      } catch (_) {}
+    };
+    source.addEventListener("status_full", onStatus);
+    source.addEventListener("status_patch", onStatus);
+    source.addEventListener("status", onStatus);
+    source.addEventListener("close", () => {
+      streamClosed = true;
+      window.__projectEventSource = null;
+      source.close();
+    });
+    source.onerror = () => {
+      source.close();
+      window.__projectEventSource = null;
+      if (!streamClosed && LIVE_STATUSES.includes(projectStatusEl.dataset.rawStatus || "")) {
+        setTimeout(refreshStatus, 800);
+      }
+    };
+  }
+
+  if (LIVE_STATUSES.includes(projectStatusEl.dataset.rawStatus || "")) {
+    startEventStream();
+  }
+</script>
+{% endblock %}

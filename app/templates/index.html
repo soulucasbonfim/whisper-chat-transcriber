@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card page-intro">
+  <h1>Painel de projetos</h1>
+  <p>Crie projetos a partir de ZIP do WhatsApp, texto com áudios ou áudios avulsos. Depois selecione os arquivos desejados e execute a transcrição.</p>
+</section>
+
+{% if error_message %}
+<section class="card notice notice-error">
+  {{ error_message }}
+</section>
+{% endif %}
+
+<section class="grid three">
+  <article class="card form-card">
+    <h2>1. Export WhatsApp (.zip)</h2>
+    <p class="hint">Recomendado: exporte a conversa com mídia e envie o ZIP.</p>
+    <form id="zipForm" action="/projects/whatsapp-zip" method="post" enctype="multipart/form-data" class="form">
+      <label>Nome do projeto</label>
+      <input type="text" name="name" placeholder="Opcional (usa nome do arquivo se vazio)" />
+
+      <label>Idioma da transcrição</label>
+      <select name="transcription_language">
+        <option value="auto">Auto detectar</option>
+        <option value="pt">Português</option>
+        <option value="en">Inglês</option>
+        <option value="es">Espanhol</option>
+        <option value="fr">Francês</option>
+        <option value="de">Alemão</option>
+        <option value="it">Italiano</option>
+      </select>
+
+      <details class="runtime-settings">
+        <summary>Recursos de processamento</summary>
+        <div class="runtime-grid">
+          <label>Workers paralelos</label>
+          <input type="number" name="runtime_workers" min="1" max="32" placeholder="auto" />
+
+          <label>Modelo Whisper</label>
+          <select name="runtime_model_size">
+            <option value="auto">auto</option>
+            <option value="tiny">tiny</option>
+            <option value="base">base</option>
+            <option value="small">small</option>
+            <option value="medium">medium</option>
+            <option value="large-v3">large-v3</option>
+          </select>
+
+          <label>Dispositivo</label>
+          <select name="runtime_device">
+            <option value="auto">auto</option>
+            <option value="cpu">cpu</option>
+            <option value="cuda">cuda</option>
+          </select>
+
+          <label>Compute type</label>
+          <select name="runtime_compute_type">
+            <option value="auto">auto</option>
+            <option value="int8">int8</option>
+            <option value="float16">float16</option>
+            <option value="float32">float32</option>
+          </select>
+        </div>
+        <div class="runtime-actions">
+          <button type="button" class="btn btn-secondary autodetect-btn" data-form-id="zipForm">Auto-detectar recursos</button>
+        </div>
+        <p class="hint runtime-hint" data-form-id="zipForm"></p>
+      </details>
+
+      <label class="toggle">
+        <input type="checkbox" name="include_video_audio" />
+        <span>Transcrever áudio de vídeos do ZIP</span>
+        <span class="info-tip" tabindex="0" data-tip="Quando ativado, cada vídeo do ZIP terá o áudio extraído e transcrito." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" name="include_images_media" />
+        <span>Importar imagens do ZIP</span>
+        <span class="info-tip" tabindex="0" data-tip="Inclui imagens na visualização da conversa e no HTML exportado. Não faz OCR do conteúdo da imagem." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" name="include_videos_media" />
+        <span>Importar vídeos do ZIP</span>
+        <span class="info-tip" tabindex="0" data-tip="Inclui vídeos na visualização da conversa e no HTML exportado. O vídeo não é transcrito automaticamente." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" name="include_stickers_media" />
+        <span>Importar figurinhas do ZIP</span>
+        <span class="info-tip" tabindex="0" data-tip="Inclui figurinhas (normalmente .webp) como anexos exibíveis na conversa e no HTML exportado." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" name="include_documents_media" />
+        <span>Importar documentos/outros arquivos do ZIP</span>
+        <span class="info-tip" tabindex="0" data-tip="Inclui documentos e outros anexos na conversa e no HTML exportado com link para abrir/baixar." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+      </label>
+
+      <label class="toggle">
+        <input type="checkbox" name="transcribe_only_referenced" />
+        <span>Transcrever apenas áudios mencionados no texto</span>
+        <span class="info-tip" tabindex="0" data-tip="Transcreve somente áudios citados no arquivo de texto. Áudios não citados ficam como pulados." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+      </label>
+
+      <label>Arquivo .zip</label>
+      <div class="file-picker">
+        <input id="zip_export_file" class="file-input" type="file" name="export_zip" accept=".zip,application/zip" required />
+        <button type="button" class="file-trigger" data-file-target="zip_export_file">Carregar arquivo...</button>
+        <span class="file-name" data-file-name-for="zip_export_file">Nenhum arquivo selecionado</span>
+      </div>
+
+      <button type="submit">Criar projeto com arquivo ZIP</button>
+      <p class="hint form-submit-warning" data-form-warning-for="zipForm" aria-live="polite"></p>
+    </form>
+  </article>
+
+  <article class="card form-card">
+    <h2>2. Texto + áudios</h2>
+    <p class="hint">Use quando você já separou o .txt e a pasta de áudios.</p>
+    <form id="manualForm" action="/projects/whatsapp" method="post" enctype="multipart/form-data" class="form">
+      <label>Nome do projeto</label>
+      <input type="text" name="name" placeholder="Opcional (usa nome do arquivo se vazio)" />
+
+      <label>Idioma da transcrição</label>
+      <select name="transcription_language">
+        <option value="auto">Auto detectar</option>
+        <option value="pt">Português</option>
+        <option value="en">Inglês</option>
+        <option value="es">Espanhol</option>
+        <option value="fr">Francês</option>
+        <option value="de">Alemão</option>
+        <option value="it">Italiano</option>
+      </select>
+
+      <details class="runtime-settings">
+        <summary>Recursos de processamento</summary>
+        <div class="runtime-grid">
+          <label>Workers paralelos</label>
+          <input type="number" name="runtime_workers" min="1" max="32" placeholder="auto" />
+
+          <label>Modelo Whisper</label>
+          <select name="runtime_model_size">
+            <option value="auto">auto</option>
+            <option value="tiny">tiny</option>
+            <option value="base">base</option>
+            <option value="small">small</option>
+            <option value="medium">medium</option>
+            <option value="large-v3">large-v3</option>
+          </select>
+
+          <label>Dispositivo</label>
+          <select name="runtime_device">
+            <option value="auto">auto</option>
+            <option value="cpu">cpu</option>
+            <option value="cuda">cuda</option>
+          </select>
+
+          <label>Compute type</label>
+          <select name="runtime_compute_type">
+            <option value="auto">auto</option>
+            <option value="int8">int8</option>
+            <option value="float16">float16</option>
+            <option value="float32">float32</option>
+          </select>
+        </div>
+        <div class="runtime-actions">
+          <button type="button" class="btn btn-secondary autodetect-btn" data-form-id="manualForm">Auto-detectar recursos</button>
+        </div>
+        <p class="hint runtime-hint" data-form-id="manualForm"></p>
+      </details>
+
+      <label class="toggle">
+        <input type="checkbox" name="transcribe_only_referenced" />
+        <span>Transcrever apenas áudios mencionados no texto</span>
+        <span class="info-tip" tabindex="0" data-tip="Transcreve somente áudios citados no arquivo de texto. Áudios não citados ficam como pulados." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+      </label>
+
+      <label>Arquivo de texto (.txt)</label>
+      <div class="file-picker">
+        <input id="manual_conversation_file" class="file-input" type="file" name="conversation_file" accept=".txt,text/plain" required />
+        <button type="button" class="file-trigger" data-file-target="manual_conversation_file">Carregar arquivo...</button>
+        <span class="file-name" data-file-name-for="manual_conversation_file">Nenhum arquivo selecionado</span>
+      </div>
+
+      <label>Áudios</label>
+      <div class="file-picker">
+        <input id="manual_audios_file" class="file-input" type="file" name="audios" multiple required />
+        <button type="button" class="file-trigger" data-file-target="manual_audios_file">Carregar arquivos...</button>
+        <span class="file-name" data-file-name-for="manual_audios_file">Nenhum arquivo selecionado</span>
+      </div>
+
+      <button type="submit">Criar projeto manual</button>
+      <p class="hint form-submit-warning" data-form-warning-for="manualForm" aria-live="polite"></p>
+    </form>
+  </article>
+
+  <article class="card form-card">
+    <h2>3. Áudios avulsos</h2>
+    <p class="hint">Para transcrição simples sem arquivo de conversa.</p>
+    <form id="standaloneForm" action="/projects/standalone" method="post" enctype="multipart/form-data" class="form">
+      <label>Nome do projeto</label>
+      <input type="text" name="name" placeholder="Opcional (usa nome do primeiro áudio se vazio)" />
+
+      <label>Idioma da transcrição</label>
+      <select name="transcription_language">
+        <option value="auto">Auto detectar</option>
+        <option value="pt">Português</option>
+        <option value="en">Inglês</option>
+        <option value="es">Espanhol</option>
+        <option value="fr">Francês</option>
+        <option value="de">Alemão</option>
+        <option value="it">Italiano</option>
+      </select>
+
+      <details class="runtime-settings">
+        <summary>Recursos de processamento</summary>
+        <div class="runtime-grid">
+          <label>Workers paralelos</label>
+          <input type="number" name="runtime_workers" min="1" max="32" placeholder="auto" />
+
+          <label>Modelo Whisper</label>
+          <select name="runtime_model_size">
+            <option value="auto">auto</option>
+            <option value="tiny">tiny</option>
+            <option value="base">base</option>
+            <option value="small">small</option>
+            <option value="medium">medium</option>
+            <option value="large-v3">large-v3</option>
+          </select>
+
+          <label>Dispositivo</label>
+          <select name="runtime_device">
+            <option value="auto">auto</option>
+            <option value="cpu">cpu</option>
+            <option value="cuda">cuda</option>
+          </select>
+
+          <label>Compute type</label>
+          <select name="runtime_compute_type">
+            <option value="auto">auto</option>
+            <option value="int8">int8</option>
+            <option value="float16">float16</option>
+            <option value="float32">float32</option>
+          </select>
+        </div>
+        <div class="runtime-actions">
+          <button type="button" class="btn btn-secondary autodetect-btn" data-form-id="standaloneForm">Auto-detectar recursos</button>
+        </div>
+        <p class="hint runtime-hint" data-form-id="standaloneForm"></p>
+      </details>
+
+      <label>Áudios</label>
+      <div class="file-picker">
+        <input id="standalone_audios_file" class="file-input" type="file" name="audios" multiple required />
+        <button type="button" class="file-trigger" data-file-target="standalone_audios_file">Carregar arquivos...</button>
+        <span class="file-name" data-file-name-for="standalone_audios_file">Nenhum arquivo selecionado</span>
+      </div>
+
+      <button type="submit">Criar projeto de áudio(s)</button>
+      <p class="hint form-submit-warning" data-form-warning-for="standaloneForm" aria-live="polite"></p>
+    </form>
+  </article>
+</section>
+
+<section class="card">
+  <div class="section-head">
+    <h2>Projetos recentes</h2>
+    <span class="mono">{{ projects|length }} projeto(s)</span>
+  </div>
+  {% if projects %}
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Nome</th>
+        <th>Tipo</th>
+        <th>Tamanho total</th>
+        <th>Status</th>
+        <th>Criado em</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in projects %}
+      <tr>
+        <td>{{ p.id }}</td>
+        <td>{{ p.name }}</td>
+        <td><span class="mono">{{ p.kind }}</span></td>
+        <td>{{ project_total_size[p.id] }}</td>
+        <td><span class="badge {{ p.status }}">{{ p.status }}</span></td>
+        <td>{{ p.created_at }}</td>
+        <td>
+          <div class="row-actions">
+            <a class="btn-inline" href="/projects/{{ p.id }}">abrir</a>
+            {% if p.status == "archived" %}
+            <form action="/projects/{{ p.id }}/restore" method="post">
+              <button class="btn-inline" type="submit">restaurar</button>
+            </form>
+            {% else %}
+            <form action="/projects/{{ p.id }}/archive" method="post">
+              <button class="btn-inline warning" type="submit">arquivar</button>
+            </form>
+            {% endif %}
+            <form action="/projects/{{ p.id }}/delete" method="post" onsubmit="return confirm('Excluir este projeto? Essa ação remove os arquivos.')">
+              <button class="btn-inline danger" type="submit">excluir</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Nenhum projeto criado ainda.</p>
+  {% endif %}
+</section>
+<script>
+  async function applySuggestion(formId) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    const hint = document.querySelector(`.runtime-hint[data-form-id='${formId}']`);
+    try {
+      const res = await fetch("/api/system/resource-suggestion", { cache: "no-store" });
+      if (!res.ok) return;
+      const s = await res.json();
+      form.querySelector("[name='runtime_workers']").value = s.workers || "";
+      form.querySelector("[name='runtime_model_size']").value = s.model_size || "auto";
+      form.querySelector("[name='runtime_device']").value = s.device || "auto";
+      form.querySelector("[name='runtime_compute_type']").value = s.compute_type || "auto";
+      if (hint) {
+        hint.textContent = `Sugestão aplicada: workers=${s.workers}, modelo=${s.model_size}, device=${s.device}, compute=${s.compute_type}.`;
+      }
+    } catch (_) {}
+  }
+
+  document.querySelectorAll(".autodetect-btn").forEach((btn) => {
+    btn.addEventListener("click", () => applySuggestion(btn.dataset.formId));
+  });
+
+  function updateFileName(input) {
+    if (!input) return;
+    const label = document.querySelector(`[data-file-name-for='${input.id}']`);
+    if (!label) return;
+    const files = input.files ? Array.from(input.files) : [];
+    if (!files.length) {
+      label.textContent = "Nenhum arquivo selecionado";
+      return;
+    }
+    if (files.length === 1) {
+      label.textContent = files[0].name;
+      return;
+    }
+    label.textContent = `${files.length} arquivos selecionados`;
+  }
+
+  document.querySelectorAll(".file-trigger").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const input = document.getElementById(btn.dataset.fileTarget || "");
+      if (input) input.click();
+    });
+  });
+
+  document.querySelectorAll(".file-input").forEach((input) => {
+    input.addEventListener("change", () => updateFileName(input));
+    updateFileName(input);
+  });
+
+  function getRequiredFileInputs(form) {
+    return Array.from(form.querySelectorAll("input[type='file'][required]"));
+  }
+
+  function hasMissingRequiredFile(form) {
+    return getRequiredFileInputs(form).some((input) => !input.files || input.files.length === 0);
+  }
+
+  function updateSubmitState(form, showWarning) {
+    if (!form) return;
+    const submit = form.querySelector("button[type='submit']");
+    if (!submit) return;
+    const warning = document.querySelector(`[data-form-warning-for='${form.id}']`);
+    const missing = hasMissingRequiredFile(form);
+    submit.disabled = missing;
+    submit.title = missing ? "Carregue os arquivos obrigatórios para continuar." : "";
+    getRequiredFileInputs(form).forEach((input) => {
+      const picker = input.closest(".file-picker");
+      if (!picker) return;
+      const isMissing = !input.files || input.files.length === 0;
+      picker.classList.toggle("is-missing", showWarning && isMissing);
+    });
+    if (warning) {
+      warning.textContent = missing ? "Carregue os arquivos obrigatórios para criar o projeto." : "";
+    }
+  }
+
+  document.querySelectorAll("form.form").forEach((form) => {
+    getRequiredFileInputs(form).forEach((input) => {
+      input.addEventListener("change", () => updateSubmitState(form, false));
+    });
+    form.addEventListener("submit", (event) => {
+      if (hasMissingRequiredFile(form)) {
+        event.preventDefault();
+        updateSubmitState(form, true);
+      }
+    });
+    updateSubmitState(form, false);
+  });
+</script>
+{% endblock %}

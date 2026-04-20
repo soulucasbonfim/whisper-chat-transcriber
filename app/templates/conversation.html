@@ -1,0 +1,437 @@
+{% extends "base.html" %}
+{% block main_class %}conversation-main{% endblock %}
+{% block content %}
+<section class="card conversation-page" data-project-id="{{ project.id }}">
+  <div class="section-head">
+    <h2>Conversa do Projeto: {{ project.name }}</h2>
+    <div class="conversation-meta-lines">
+      <span class="mono">Origem do projeto: {{ origin_label }}</span>
+      <span class="mono">Visualização atual: {{ source_label }}</span>
+    </div>
+  </div>
+
+  <div class="conversation-toolbar">
+    <a class="btn btn-ghost" href="/projects/{{ project.id }}">Voltar ao projeto</a>
+    <a class="btn btn-html" href="/projects/{{ project.id }}/conversation/download-html">Baixar conversa (.html)</a>
+    <a class="btn btn-warning" href="/projects/{{ project.id }}/conversation/download-bundle">Baixar conversa + anexos (.zip)</a>
+    {% if project.merged_text_path %}
+    <a class="btn btn-primary" href="/projects/{{ project.id }}/download-merged">Baixar texto final</a>
+    {% endif %}
+  </div>
+
+  <div class="chat-shell" id="chatShell">
+    <div class="chat-loader" id="chatStart">
+      <span class="mono">Início da conversa</span>
+    </div>
+    <div class="chat-stream" id="chatStream"></div>
+    <div class="chat-loader hidden" id="chatLoader">
+      <span class="mono">Carregando mensagens...</span>
+    </div>
+    <div class="chat-loader hidden" id="chatDone">
+      <span class="mono">Fim da conversa</span>
+    </div>
+    <div class="chat-loader hidden" id="chatError">
+      <span class="mono">Falha ao carregar mensagens.</span>
+    </div>
+    <div id="chatSentinel"></div>
+  </div>
+</section>
+
+<script>
+  (function () {
+    const page = document.querySelector(".conversation-page");
+    if (!page) return;
+
+    const projectId = page.dataset.projectId;
+    const shell = document.getElementById("chatShell");
+    const stream = document.getElementById("chatStream");
+    const loader = document.getElementById("chatLoader");
+    const done = document.getElementById("chatDone");
+    const error = document.getElementById("chatError");
+    const sentinel = document.getElementById("chatSentinel");
+
+    const ua = navigator.userAgent || "";
+    const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS/i.test(ua);
+    const PAGE_SIZE_MIN = isSafari ? 60 : 90;
+    const PAGE_SIZE_MAX = isSafari ? 140 : 240;
+    let pageSize = isSafari ? 90 : 140;
+    const STREAM_DELAY_MS = isSafari ? 120 : 70;
+    const RENDER_BATCH_SIZE = isSafari ? 18 : 42;
+    let nextOffset = 0;
+    let hasMore = true;
+    let loading = false;
+    let firstLoaded = false;
+    let streamRunning = false;
+    let activeMiniAudio = null;
+
+    if (isSafari && shell) {
+      shell.classList.add("safari-optimized");
+    }
+
+    function formatMiniAudioTime(seconds) {
+      const n = Number(seconds || 0);
+      if (!Number.isFinite(n) || n < 0) return "00:00";
+      const total = Math.floor(n);
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      if (h > 0) return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+      return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+    }
+
+    function updateMiniAudioTime(shell) {
+      const audio = shell.querySelector("audio");
+      const time = shell.querySelector(".mini-audio-time");
+      if (!audio || !time) return;
+      const current = formatMiniAudioTime(audio.currentTime || 0);
+      const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? formatMiniAudioTime(audio.duration) : "--:--";
+      time.textContent = current + " / " + duration;
+    }
+
+    function updateMiniAudioProgress(shell) {
+      const audio = shell.querySelector("audio");
+      const seek = shell.querySelector(".mini-audio-seek");
+      if (!audio || !seek) return;
+      const duration = Number(audio.duration || 0);
+      if (!Number.isFinite(duration) || duration <= 0) {
+        seek.value = "0";
+        return;
+      }
+      const pct = (Number(audio.currentTime || 0) / duration) * 100;
+      seek.value = String(Math.max(0, Math.min(100, pct)));
+    }
+
+    function pauseOtherMiniAudios(currentAudio) {
+      if (activeMiniAudio && activeMiniAudio !== currentAudio && !activeMiniAudio.paused) {
+        activeMiniAudio.pause();
+      }
+    }
+
+    function hydrateMiniAudio(audio) {
+      if (!audio || audio.dataset.hydrated === "1") return;
+      const src = audio.dataset.src || "";
+      if (!src) return;
+      audio.src = src;
+      audio.preload = "metadata";
+      audio.dataset.hydrated = "1";
+      audio.load();
+    }
+
+    function bindMiniAudio(shell) {
+      if (!shell || shell.dataset.bound === "1") return;
+      shell.dataset.bound = "1";
+      const btn = shell.querySelector(".mini-audio-btn");
+      const seek = shell.querySelector(".mini-audio-seek");
+      const audio = shell.querySelector("audio");
+      if (!btn || !seek || !audio) return;
+
+      const updateButton = () => {
+        const playing = !audio.paused && !audio.ended;
+        btn.innerHTML = playing
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6h3v12H8zM13 6h3v12h-3z"/></svg>'
+          : '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 6v12l10-6z"/></svg>';
+        btn.setAttribute("aria-label", playing ? "Pausar áudio" : "Reproduzir áudio");
+        btn.classList.toggle("is-playing", playing);
+      };
+
+      const hydrate = () => hydrateMiniAudio(audio);
+      btn.addEventListener("pointerdown", hydrate, { passive: true });
+      btn.addEventListener("focus", hydrate);
+
+      btn.addEventListener("click", async () => {
+        try {
+          if (audio.paused) {
+            hydrate();
+            pauseOtherMiniAudios(audio);
+            await audio.play();
+          } else {
+            audio.pause();
+          }
+        } catch (_err) {}
+        updateButton();
+      });
+
+      seek.addEventListener("pointerdown", hydrate, { passive: true });
+      seek.addEventListener("input", () => {
+        hydrate();
+        const duration = Number(audio.duration || 0);
+        if (!Number.isFinite(duration) || duration <= 0) return;
+        audio.currentTime = (Number(seek.value || 0) / 100) * duration;
+        updateMiniAudioTime(shell);
+      });
+
+      audio.addEventListener("loadedmetadata", () => {
+        updateMiniAudioTime(shell);
+        updateMiniAudioProgress(shell);
+      });
+      audio.addEventListener("timeupdate", () => {
+        updateMiniAudioTime(shell);
+        updateMiniAudioProgress(shell);
+      });
+      audio.addEventListener("play", () => {
+        pauseOtherMiniAudios(audio);
+        activeMiniAudio = audio;
+        updateButton();
+      });
+      audio.addEventListener("pause", () => {
+        if (activeMiniAudio === audio && audio.paused) activeMiniAudio = null;
+        updateButton();
+      });
+      audio.addEventListener("ended", () => {
+        if (activeMiniAudio === audio) activeMiniAudio = null;
+        updateButton();
+        updateMiniAudioProgress(shell);
+      });
+
+      updateButton();
+      updateMiniAudioTime(shell);
+      updateMiniAudioProgress(shell);
+    }
+
+    function show(el, visible) {
+      if (!el) return;
+      el.classList.toggle("hidden", !visible);
+    }
+
+    function makeEl(tag, cls) {
+      const el = document.createElement(tag);
+      if (cls) el.className = cls;
+      return el;
+    }
+
+    function renderAttachment(msg) {
+      if (!msg.attachment_url) return null;
+
+      const wrap = makeEl("div", "chat-attachment");
+      const kind = msg.attachment_kind || "document";
+
+      if (kind === "sticker") {
+        const img = makeEl("img", "sticker-preview");
+        img.loading = "lazy";
+        img.src = msg.attachment_url;
+        img.alt = msg.attachment_name || "figurinha";
+        wrap.appendChild(img);
+        return wrap;
+      }
+
+      if (kind === "image") {
+        const link = makeEl("a");
+        link.href = msg.attachment_url;
+        link.target = "_blank";
+        link.rel = "noopener";
+        const img = makeEl("img");
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.src = msg.attachment_url;
+        img.alt = msg.attachment_name || "imagem";
+        link.appendChild(img);
+        wrap.appendChild(link);
+        return wrap;
+      }
+
+      if (kind === "video") {
+        const video = makeEl("video");
+        video.src = msg.attachment_url;
+        video.controls = true;
+        video.preload = "none";
+        wrap.appendChild(video);
+
+        const open = makeEl("a", "chat-open-link");
+        open.href = msg.attachment_url;
+        open.target = "_blank";
+        open.rel = "noopener";
+        open.textContent = "Abrir vídeo";
+        wrap.appendChild(open);
+        return wrap;
+      }
+
+      if (kind === "audio") {
+        const shell = makeEl("div", "mini-audio");
+        const btn = makeEl("button", "mini-audio-btn");
+        btn.type = "button";
+        btn.setAttribute("aria-label", "Reproduzir áudio");
+        const seek = makeEl("input", "mini-audio-seek");
+        seek.type = "range";
+        seek.min = "0";
+        seek.max = "100";
+        seek.step = "0.1";
+        seek.value = "0";
+        seek.setAttribute("aria-label", "Progresso do áudio");
+        const time = makeEl("span", "mono mini-audio-time");
+        time.textContent = "00:00 / --:--";
+        const audio = makeEl("audio");
+        audio.preload = "none";
+        audio.dataset.src = msg.attachment_url;
+        shell.appendChild(btn);
+        shell.appendChild(seek);
+        shell.appendChild(time);
+        shell.appendChild(audio);
+        bindMiniAudio(shell);
+        wrap.appendChild(shell);
+        return wrap;
+      }
+
+      if (kind === "pdf") {
+        const file = makeEl("a", "chat-file-link");
+        file.href = msg.attachment_url;
+        file.target = "_blank";
+        file.rel = "noopener";
+        const label = makeEl("span", "mono");
+        label.textContent = msg.attachment_name || "documento.pdf";
+        file.appendChild(label);
+        wrap.appendChild(file);
+
+        const frame = makeEl("iframe", "chat-doc-preview");
+        frame.loading = "lazy";
+        frame.src = msg.attachment_url + "#toolbar=0&navpanes=0";
+        wrap.appendChild(frame);
+        return wrap;
+      }
+
+      const generic = makeEl("a", "chat-file-link");
+      generic.href = msg.attachment_url;
+      generic.target = "_blank";
+      generic.rel = "noopener";
+      const mono = makeEl("span", "mono");
+      mono.textContent = msg.attachment_name || "arquivo";
+      generic.appendChild(mono);
+      wrap.appendChild(generic);
+      return wrap;
+    }
+
+    function renderMessage(msg) {
+      const row = makeEl("article", "chat-row " + (msg.side === "mine" ? "mine" : "other"));
+      const bubble = makeEl("div", "chat-bubble");
+      const meta = makeEl("header", "chat-meta");
+
+      const author = makeEl("strong");
+      author.textContent = msg.author || "Sistema";
+      meta.appendChild(author);
+
+      if (msg.timestamp) {
+        const ts = makeEl("span", "mono");
+        ts.textContent = msg.timestamp;
+        meta.appendChild(ts);
+      }
+
+      bubble.appendChild(meta);
+
+      if (msg.message) {
+        const text = makeEl("p");
+        text.textContent = msg.message;
+        bubble.appendChild(text);
+      }
+
+      const attachment = renderAttachment(msg);
+      if (attachment) bubble.appendChild(attachment);
+
+      row.appendChild(bubble);
+      return row;
+    }
+
+    function nextRenderFrame() {
+      return new Promise((resolve) => {
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(() => setTimeout(resolve, 0));
+          return;
+        }
+        setTimeout(resolve, 0);
+      });
+    }
+
+    async function appendMessagesProgressively(items) {
+      if (!items.length) return;
+      for (let i = 0; i < items.length; i += RENDER_BATCH_SIZE) {
+        const frag = document.createDocumentFragment();
+        const end = Math.min(items.length, i + RENDER_BATCH_SIZE);
+        for (let j = i; j < end; j++) {
+          frag.appendChild(renderMessage(items[j]));
+        }
+        stream.appendChild(frag);
+        if (end < items.length) {
+          await nextRenderFrame();
+        }
+      }
+    }
+
+    async function loadChunk() {
+      if (!hasMore || loading) return;
+      loading = true;
+      show(loader, true);
+      show(error, false);
+
+      try {
+        const url = "/api/projects/" + projectId + "/conversation/messages?offset=" + nextOffset + "&limit=" + pageSize;
+        const res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+        if (!res.ok) throw new Error("http_" + res.status);
+        const payload = await res.json();
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        const renderStart = performance.now();
+
+        if (!firstLoaded && items.length === 0) {
+          const hint = makeEl("p", "hint");
+          hint.textContent = "Nenhuma mensagem estruturada foi encontrada nesse arquivo.";
+          stream.appendChild(hint);
+        } else {
+          await appendMessagesProgressively(items);
+        }
+        const renderElapsed = performance.now() - renderStart;
+        if (renderElapsed > 160 && pageSize > PAGE_SIZE_MIN) {
+          pageSize = Math.max(PAGE_SIZE_MIN, pageSize - 20);
+        } else if (renderElapsed < 55 && pageSize < PAGE_SIZE_MAX) {
+          pageSize = Math.min(PAGE_SIZE_MAX, pageSize + 10);
+        }
+
+        firstLoaded = true;
+        nextOffset = Number(payload.next_offset || 0);
+        hasMore = Boolean(payload.has_more);
+        show(done, !hasMore && stream.children.length > 0);
+      } catch (_err) {
+        show(error, true);
+        hasMore = false;
+      } finally {
+        loading = false;
+        show(loader, false);
+      }
+    }
+
+    async function streamAllChunks() {
+      if (streamRunning) return;
+      streamRunning = true;
+      try {
+        while (hasMore) {
+          await loadChunk();
+          if (!hasMore) break;
+          await new Promise((resolve) => setTimeout(resolve, STREAM_DELAY_MS));
+        }
+      } finally {
+        streamRunning = false;
+      }
+    }
+
+    if ("IntersectionObserver" in window && sentinel) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              loadChunk();
+            }
+          }
+        },
+        { root: shell, rootMargin: "240px 0px", threshold: 0.01 }
+      );
+      observer.observe(sentinel);
+      streamAllChunks();
+    } else if (shell) {
+      shell.addEventListener("scroll", () => {
+        if (loading || !hasMore) return;
+        const remaining = shell.scrollHeight - shell.scrollTop - shell.clientHeight;
+        if (remaining < 300) loadChunk();
+      });
+      streamAllChunks();
+    } else {
+      streamAllChunks();
+    }
+  })();
+</script>
+{% endblock %}

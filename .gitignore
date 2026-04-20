@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Local env files
+.env
+.env.local
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE/OS
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime data and logs
+data/
+*.log
+IMPLEMENTATION_CONTEXT.md
+
+# SQLite and temp files
+*.sqlite
+*.sqlite3
+*.db
+*.tmp
+*.swp

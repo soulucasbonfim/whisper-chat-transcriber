@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ title or "Whisper Chat Transcriber" }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="/" class="brand">Whisper Chat Transcriber</a>
+      <span class="subtitle">Gestão de transcrição de áudios para conversas e arquivos avulsos</span>
+      <div class="topbar-right">
+        <button id="themeToggle" type="button" class="theme-toggle" aria-label="Alternar tema">
+          <span class="theme-icon" aria-hidden="true"></span>
+        </button>
+      </div>
+    </header>
+    <main class="container {% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
+    <script>
+      (function () {
+        const key = "wct_theme";
+        const root = document.documentElement;
+        const btn = document.getElementById("themeToggle");
+
+        function apply(theme) {
+          root.setAttribute("data-theme", theme);
+          if (btn) {
+            const iconSun =
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M2 12h3M19 12h3M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>';
+            const iconMoon =
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+            btn.querySelector(".theme-icon").innerHTML = theme === "dark" ? iconMoon : iconSun;
+            btn.title = theme === "dark" ? "Tema escuro" : "Tema claro";
+          }
+        }
+
+        const stored = localStorage.getItem(key);
+        const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        apply(stored || (prefersDark ? "dark" : "light"));
+
+        if (btn) {
+          btn.addEventListener("click", () => {
+            const current = root.getAttribute("data-theme") === "dark" ? "dark" : "light";
+            const next = current === "dark" ? "light" : "dark";
+            localStorage.setItem(key, next);
+            apply(next);
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>
