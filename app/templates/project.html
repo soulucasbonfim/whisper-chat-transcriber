@@ -174,6 +174,24 @@
             <span>Importar documentos/outros arquivos do ZIP</span>
             <span class="info-tip" tabindex="0" data-tip="Inclui documentos e outros anexos na conversa e no HTML exportado com link para abrir/baixar." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
           </label>
+
+          <label class="toggle">
+            <input type="checkbox" name="transcribe_only_referenced" {% if transcribe_only_referenced %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+            <span>Transcrever apenas áudios mencionados no texto</span>
+            <span class="info-tip" tabindex="0" data-tip="Ao salvar, seleciona automaticamente só os áudios referenciados no texto da conversa." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+          </label>
+
+          <label class="toggle">
+            <input type="checkbox" name="show_audio_attachments" {% if show_audio_attachments %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+            <span>Exibir players de áudio na conversa</span>
+            <span class="info-tip" tabindex="0" data-tip="Controla apenas a visualização da conversa. Não altera o processamento/transcrição dos áudios." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+          </label>
+
+          <label class="toggle">
+            <input type="checkbox" name="show_video_attachments" {% if show_video_attachments %}checked{% endif %} {% if is_locked %}disabled{% endif %} />
+            <span>Exibir players de vídeo na conversa</span>
+            <span class="info-tip" tabindex="0" data-tip="Controla apenas a visualização da conversa. Independente da extração/transcrição de áudio de vídeos." aria-label="Mais informações"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><line x1="12" y1="10" x2="12" y2="16"></line><circle cx="12" cy="7.5" r="0.9" class="dot"></circle></svg></span>
+          </label>
         </details>
 
         <details class="runtime-settings project-collapsible">

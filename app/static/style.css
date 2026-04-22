@@ -404,7 +404,7 @@ input.file-input {
 }
 
 .project-sidebar details.project-collapsible {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .project-sidebar details.project-collapsible > summary {

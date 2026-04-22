@@ -283,6 +283,7 @@
     </thead>
     <tbody>
       {% for p in projects %}
+      {% set is_actions_locked = p.status in ["processing", "queued", "stopping", "importing"] %}
       <tr>
         <td>{{ p.id }}</td>
         <td>{{ p.name }}</td>
@@ -299,11 +300,11 @@
             </form>
             {% else %}
             <form action="/projects/{{ p.id }}/archive" method="post">
-              <button class="btn-inline warning" type="submit">arquivar</button>
+              <button class="btn-inline warning" type="submit" {% if is_actions_locked %}disabled title="Não disponível enquanto o projeto está processando."{% endif %}>arquivar</button>
             </form>
             {% endif %}
             <form action="/projects/{{ p.id }}/delete" method="post" onsubmit="return confirm('Excluir este projeto? Essa ação remove os arquivos.')">
-              <button class="btn-inline danger" type="submit">excluir</button>
+              <button class="btn-inline danger" type="submit" {% if is_actions_locked %}disabled title="Não disponível enquanto o projeto está processando."{% endif %}>excluir</button>
             </form>
           </div>
         </td>

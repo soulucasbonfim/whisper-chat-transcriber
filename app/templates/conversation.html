@@ -13,6 +13,7 @@
   <div class="conversation-toolbar">
     <a class="btn btn-ghost" href="/projects/{{ project.id }}">Voltar ao projeto</a>
     <a class="btn btn-html" href="/projects/{{ project.id }}/conversation/download-html">Baixar conversa (.html)</a>
+    <a class="btn btn-secondary" href="/projects/{{ project.id }}/conversation/download-pdf" target="_blank" rel="noopener">Salvar conversa em PDF</a>
     <a class="btn btn-warning" href="/projects/{{ project.id }}/conversation/download-bundle">Baixar conversa + anexos (.zip)</a>
     {% if project.merged_text_path %}
     <a class="btn btn-primary" href="/projects/{{ project.id }}/download-merged">Baixar texto final</a>

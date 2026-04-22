@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Conversa - {{ project.name }}</title>
+    <title>{% if pdf_mode and suggested_pdf_filename %}{{ suggested_pdf_filename }}.pdf{% else %}Conversa - {{ project.name }}{% endif %}</title>
     <style>
       :root {
         --bg: #f3f5f8;
@@ -141,6 +141,35 @@
         border-radius: 8px;
         background: #fff;
       }
+      {% if pdf_mode %}
+      @page {
+        size: A4;
+        margin: 10mm;
+      }
+      .toolbar {
+        display: none;
+      }
+      .wrap {
+        width: auto;
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        padding: 0;
+      }
+      @media print {
+        body {
+          background: #fff;
+        }
+        .wrap {
+          border: 0;
+          box-shadow: none;
+        }
+        .row {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+      }
+      {% endif %}
     </style>
   </head>
   <body>
@@ -255,6 +284,17 @@
           player.addEventListener("pointerdown", () => hydratePlayer(player), { passive: true });
           player.addEventListener("focus", () => hydratePlayer(player));
         }
+
+        {% if pdf_mode %}
+        window.addEventListener("load", () => {
+          {% if suggested_pdf_filename %}
+          document.title = "{{ suggested_pdf_filename }}.pdf";
+          {% endif %}
+          setTimeout(() => {
+            window.print();
+          }, 120);
+        });
+        {% endif %}
       })();
     </script>
   </body>

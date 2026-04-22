@@ -430,12 +430,21 @@ def _process_project(project_id: int):
         preferred_compute_type = config.get("compute_type")
         preferred_workers = config.get("workers")
         selected_id_set = _parse_selected_ids(config.get("selected_audio_ids"))
+        transcribe_only_referenced = bool(config.get("transcribe_only_referenced", False))
 
         audios = db.query(Audio).filter(Audio.project_id == project.id).order_by(Audio.id.asc()).all()
+        if transcribe_only_referenced and not selected_id_set:
+            selected_id_set = {int(audio.id) for audio in audios if bool(audio.line_hint)}
 
         target_audios: list[Audio | None] = []
         for audio in audios:
-            if selected_id_set and audio.id not in selected_id_set:
+            should_skip = False
+            if transcribe_only_referenced and audio.id not in selected_id_set:
+                should_skip = True
+            elif selected_id_set and audio.id not in selected_id_set:
+                should_skip = True
+
+            if should_skip:
                 if audio.status not in {"done", "skipped"}:
                     audio.status = "skipped"
                     audio.progress_pct = 0

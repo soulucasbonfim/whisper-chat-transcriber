@@ -65,6 +65,9 @@ DEFAULT_PROJECT_CONFIG = {
     "include_videos_media": False,
     "include_stickers_media": False,
     "include_documents_media": False,
+    "transcribe_only_referenced": False,
+    "show_audio_attachments": False,
+    "show_video_attachments": False,
     "selected_audio_ids": [],
     "workers": None,
     "model_size": None,
@@ -211,6 +214,14 @@ def _sanitize_download_name(name: str, fallback: str) -> str:
     safe = re.sub(r'[\\/:*?"<>|]+', "_", (name or "").strip())
     safe = re.sub(r"\s+", " ", safe).strip().strip(".")
     return safe or fallback
+
+
+def _safe_download_base(project_name: str, project_id: int) -> str:
+    base = slugify(project_name or "", separator="_")
+    base = re.sub(r"[^a-zA-Z0-9._-]+", "_", base).strip("._-")
+    if not base:
+        base = f"projeto_{project_id}"
+    return base
 
 
 def _project_name_exists(db: Session, name: str) -> bool:
@@ -571,6 +582,10 @@ def _load_project_config(project_dir: Path) -> dict:
             merged["include_videos_media"] = True
             merged["include_stickers_media"] = True
             merged["include_documents_media"] = True
+        if "show_video_attachments" not in payload:
+            merged["show_video_attachments"] = bool(merged.get("include_videos_media", False))
+        if "show_audio_attachments" not in payload:
+            merged["show_audio_attachments"] = False
         return merged
     except Exception:
         return DEFAULT_PROJECT_CONFIG.copy()
@@ -582,6 +597,15 @@ def _save_project_config(project_dir: Path, payload: dict) -> None:
     merged.update(payload)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _conversation_visibility_flags(config: dict) -> tuple[bool, bool]:
+    show_audio = bool(config.get("show_audio_attachments", False))
+    if "show_video_attachments" in config:
+        show_video = bool(config.get("show_video_attachments", False))
+    else:
+        show_video = bool(config.get("include_videos_media", False))
+    return show_audio, show_video
 
 
 def _load_project_language(project_dir: Path) -> str:
@@ -903,6 +927,8 @@ def _selected_audio_ids_from_config(config: dict, audios: list[Audio]) -> set[in
         if (isinstance(v, int) or (isinstance(v, str) and v.isdigit()))
     }
     if not selected_ids:
+        if bool(config.get("transcribe_only_referenced", False)):
+            return set()
         return {a.id for a in audios}
     existing = {a.id for a in audios}
     return {aid for aid in selected_ids if aid in existing}
@@ -915,8 +941,33 @@ def _selected_audio_ids_from_existing(config: dict, existing_ids: set[int]) -> s
         if (isinstance(v, int) or (isinstance(v, str) and v.isdigit()))
     }
     if not selected_ids:
+        if bool(config.get("transcribe_only_referenced", False)):
+            return set()
         return set(existing_ids)
     return {aid for aid in selected_ids if aid in existing_ids}
+
+
+def _reset_selected_audio_outputs_for_retranscription(project: Project, db: Session) -> int:
+    project_dir = settings.data_dir / "projects" / str(project.id)
+    config = _load_project_config(project_dir)
+    audios = db.query(Audio).filter(Audio.project_id == project.id).all()
+    selected_ids = _selected_audio_ids_from_config(config, audios)
+    if not selected_ids:
+        return 0
+
+    reset_count = 0
+    for audio in audios:
+        if audio.id not in selected_ids:
+            continue
+        audio.transcript_text = None
+        audio.transcript_path = None
+        audio.status = "pending"
+        audio.progress_pct = 0
+        reset_count += 1
+
+    if reset_count > 0:
+        project.merged_text_path = None
+    return reset_count
 
 
 def _is_project_fully_done(project: Project, db: Session) -> bool:
@@ -943,6 +994,8 @@ def _project_status_display(project_status: str | None, project_fully_done: bool
 
 
 def _start_button_label(project_status_display: str, has_partial_progress: bool = False) -> str:
+    if project_status_display == "done":
+        return "Nova transcrição"
     if project_status_display == "incompleto" or has_partial_progress:
         return "Continuar transcrição"
     return "Iniciar transcrição"
@@ -1055,9 +1108,7 @@ def _project_status_payload(project: Project, db: Session) -> dict:
             if row is None or not _audio_effectively_done_values(row.status, row.transcript_path, None):
                 project_fully_done = False
                 break
-    can_start = project.status in {"draft", "canceled", "stopped", "error", "import_error"} or (
-        project.status == "done" and not project_fully_done
-    )
+    can_start = project.status in {"draft", "canceled", "stopped", "error", "import_error", "done"}
     project_status_display, project_status_display_class = _project_status_display(project.status, project_fully_done)
     partial_progress = _has_partial_progress_from_rows(audios, None)
     start_button_label = _start_button_label(project_status_display, partial_progress)
@@ -1360,17 +1411,22 @@ def _build_media_lookup(project_dir: Path, audio_items: list[Audio] | None = Non
     for audio in audio_items or []:
         if not audio.original_name or not audio.stored_path:
             continue
-        guessed, _ = mimetypes.guess_type(audio.original_name)
-        mime_type = guessed or "audio/*"
+        original_name = str(audio.original_name)
+        if not is_audio_file(original_name):
+            continue
+        guessed, _ = mimetypes.guess_type(str(audio.stored_path))
+        if not guessed or not guessed.startswith("audio/"):
+            guessed, _ = mimetypes.guess_type(original_name)
+        mime_type = guessed if (guessed and guessed.startswith("audio/")) else "audio/*"
         keys = {
-            normalize_name(str(audio.original_name)),
+            normalize_name(original_name),
             normalize_name(Path(str(audio.stored_path)).name),
         }
         for key in keys:
             if not key or key in lookup:
                 continue
             lookup[key] = {
-                "original_name": str(audio.original_name),
+                "original_name": original_name,
                 "stored_path": str(audio.stored_path),
                 "mime_type": str(mime_type),
             }
@@ -1380,6 +1436,8 @@ def _build_media_lookup(project_dir: Path, audio_items: list[Audio] | None = Non
 def _decorate_message_with_attachment(
     message_text: str,
     media_lookup: dict[str, dict],
+    show_audio_attachments: bool = False,
+    show_video_attachments: bool = False,
     absolute_base_url: str | None = None,
 ) -> dict:
     out = {
@@ -1417,6 +1475,12 @@ def _decorate_message_with_attachment(
         kind = "pdf"
 
     cleaned_message = ATTACHMENT_TOKEN_RE.sub("", message_text or "", count=1).strip()
+    if kind == "audio" and not show_audio_attachments:
+        out["message"] = cleaned_message
+        return out
+    if kind == "video" and not show_video_attachments:
+        out["message"] = cleaned_message
+        return out
     out["attachment_name"] = media.get("original_name") or attachment_name
     out["attachment_url"] = _public_file_url(media["stored_path"], absolute_base_url=absolute_base_url)
     out["attachment_kind"] = kind
@@ -1429,6 +1493,8 @@ def _decorate_chat_messages(
     messages: list[dict[str, str]],
     project_dir: Path,
     audio_items: list[Audio] | None = None,
+    show_audio_attachments: bool = False,
+    show_video_attachments: bool = False,
     absolute_base_url: str | None = None,
 ) -> list[dict[str, str]]:
     side_map: dict[str, str] = {}
@@ -1447,6 +1513,8 @@ def _decorate_chat_messages(
         attachment = _decorate_message_with_attachment(
             msg.get("message") or "",
             media_lookup,
+            show_audio_attachments=show_audio_attachments,
+            show_video_attachments=show_video_attachments,
             absolute_base_url=absolute_base_url,
         )
         decorated.append(
@@ -1467,7 +1535,7 @@ def _decorate_chat_messages(
 def _build_conversation_bundle(
     project: Project, messages: list[dict], source_name: str, source_label: str, origin_label: str
 ) -> tuple[bytes, str]:
-    base = _sanitize_download_name(project.name, f"projeto_{project.id}")
+    base = _safe_download_base(project.name, project.id)
     bundle_root = slugify(base) or f"projeto_{project.id}"
     html_name = "abrir_conversa.html"
 
@@ -1546,9 +1614,9 @@ def _project_origin_label(project: Project) -> str:
     return kind or "desconhecido"
 
 
-def _conversation_cache_key(project_id: int, source_path: Path) -> str:
+def _conversation_cache_key(project_id: int, source_path: Path, variant: str = "") -> str:
     stat = source_path.stat()
-    return f"{project_id}:{source_path}:{stat.st_mtime_ns}:{stat.st_size}"
+    return f"{project_id}:{source_path}:{stat.st_mtime_ns}:{stat.st_size}:{variant}"
 
 
 def _conversation_disk_cache_path(project_id: int) -> Path:
@@ -1591,7 +1659,10 @@ def _schedule_conversation_cache_warm_for_project(project: Project) -> None:
     if not source_path:
         return
     try:
-        key = _conversation_cache_key(project.id, source_path)
+        config = _load_project_config(settings.data_dir / "projects" / str(project.id))
+        show_audio_attachments, show_video_attachments = _conversation_visibility_flags(config)
+        variant = f"a={int(show_audio_attachments)};v={int(show_video_attachments)}"
+        key = _conversation_cache_key(project.id, source_path, variant=variant)
     except Exception:
         return
 
@@ -1621,7 +1692,11 @@ def _schedule_conversation_cache_warm_for_project(project: Project) -> None:
 
 def _get_cached_conversation_messages(project: Project, db: Session) -> tuple[Path, list[dict]]:
     source_path = _conversation_source_path(project)
-    key = _conversation_cache_key(project.id, source_path)
+    project_dir = settings.data_dir / "projects" / str(project.id)
+    config = _load_project_config(project_dir)
+    show_audio_attachments, show_video_attachments = _conversation_visibility_flags(config)
+    variant = f"a={int(show_audio_attachments)};v={int(show_video_attachments)}"
+    key = _conversation_cache_key(project.id, source_path, variant=variant)
     with _conversation_cache_lock:
         cached = _conversation_cache.get(key)
         if cached and isinstance(cached.get("messages"), list):
@@ -1638,11 +1713,16 @@ def _get_cached_conversation_messages(project: Project, db: Session) -> tuple[Pa
             _conversation_cache_warmed_keys[project.id] = key
         return source_path, cached_disk
 
-    project_dir = settings.data_dir / "projects" / str(project.id)
     raw = source_path.read_text(encoding="utf-8")
     parsed = _parse_conversation_lines(raw)
     project_audios = db.query(Audio).filter(Audio.project_id == project.id).all()
-    messages = _decorate_chat_messages(parsed, project_dir=project_dir, audio_items=project_audios)
+    messages = _decorate_chat_messages(
+        parsed,
+        project_dir=project_dir,
+        audio_items=project_audios,
+        show_audio_attachments=show_audio_attachments,
+        show_video_attachments=show_video_attachments,
+    )
 
     with _conversation_cache_lock:
         # prune old cache entries for this project
@@ -1723,6 +1803,9 @@ async def create_whatsapp_project(
             {
                 "language": language,
                 "extract_video_audio": False,
+                "transcribe_only_referenced": transcribe_only_referenced,
+                "show_audio_attachments": False,
+                "show_video_attachments": False,
                 "workers": workers,
                 "model_size": model_size,
                 "device": device,
@@ -1813,6 +1896,9 @@ async def create_whatsapp_zip_project(
                 "include_videos_media": include_videos_media,
                 "include_stickers_media": include_stickers_media,
                 "include_documents_media": include_documents_media,
+                "transcribe_only_referenced": transcribe_only_referenced,
+                "show_audio_attachments": False,
+                "show_video_attachments": include_videos_media,
                 "workers": workers,
                 "model_size": model_size,
                 "device": device,
@@ -1878,6 +1964,9 @@ async def create_standalone_project(
             {
                 "language": language,
                 "extract_video_audio": False,
+                "transcribe_only_referenced": False,
+                "show_audio_attachments": False,
+                "show_video_attachments": False,
                 "workers": workers,
                 "model_size": model_size,
                 "device": device,
@@ -1923,6 +2012,7 @@ def project_detail(project_id: int, request: Request, db: Session = Depends(get_
     project_dir = settings.data_dir / "projects" / str(project.id)
     configured_language = _load_project_language(project_dir)
     config = _load_project_config(project_dir)
+    show_audio_attachments, show_video_attachments = _conversation_visibility_flags(config)
     import_state = _read_import_state(project_dir)
     project_progress_pct = _project_progress_pct(audios)
     if project.status == "importing":
@@ -1932,9 +2022,7 @@ def project_detail(project_id: int, request: Request, db: Session = Depends(get_
     is_transcribing = project.status in ACTIVE_STATUSES
     project_fully_done = _is_project_fully_done(project, db)
     project_status_display, project_status_display_class = _project_status_display(project.status, project_fully_done)
-    can_start = project.status in {"draft", "canceled", "stopped", "error", "import_error"} or (
-        project.status == "done" and not project_fully_done
-    )
+    can_start = project.status in {"draft", "canceled", "stopped", "error", "import_error", "done"}
     run_elapsed_seconds = _resolve_run_elapsed_seconds(project)
     total_elapsed_seconds = _resolve_total_elapsed_seconds(project)
 
@@ -1981,6 +2069,9 @@ def project_detail(project_id: int, request: Request, db: Session = Depends(get_
             "include_videos_media": bool(config.get("include_videos_media", False)),
             "include_stickers_media": bool(config.get("include_stickers_media", False)),
             "include_documents_media": bool(config.get("include_documents_media", False)),
+            "transcribe_only_referenced": bool(config.get("transcribe_only_referenced", False)),
+            "show_audio_attachments": show_audio_attachments,
+            "show_video_attachments": show_video_attachments,
             "configured_workers": config.get("workers") or "auto",
             "configured_model_size": config.get("model_size") or "auto",
             "configured_device": config.get("device") or "auto",
@@ -2020,7 +2111,7 @@ def download_merged_text(project_id: int, db: Session = Depends(get_db)):
     if not merged_path:
         raise HTTPException(status_code=404, detail="Arquivo final nao encontrado")
 
-    base = _sanitize_download_name(project.name, f"projeto_{project.id}")
+    base = _safe_download_base(project.name, project.id)
     filename = f"{base}_texto_final.txt"
     return FileResponse(path=str(merged_path), media_type="text/plain; charset=utf-8", filename=filename)
 
@@ -2072,15 +2163,7 @@ def conversation_messages_api(
     }
 
 
-@app.get("/projects/{project_id}/conversation/download-html")
-def conversation_download_html(project_id: int, db: Session = Depends(get_db)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Projeto nao encontrado")
-
-    source_path, messages = _get_cached_conversation_messages(project, db)
-    source_label = _conversation_source_label(project, source_path)
-    origin_label = _project_origin_label(project)
+def _messages_for_textual_export(messages: list[dict]) -> list[dict]:
     exported_messages: list[dict] = []
     for msg in messages:
         cloned = dict(msg)
@@ -2093,20 +2176,87 @@ def conversation_download_html(project_id: int, db: Session = Depends(get_db)):
         cloned["attachment_kind"] = None
         cloned["attachment_stored_path"] = None
         exported_messages.append(cloned)
+    return exported_messages
 
-    html = templates.env.get_template("conversation_export.html").render(
+
+def _safe_pdf_filename_stem(project_name: str, project_id: int) -> str:
+    base = _safe_download_base(project_name, project_id)
+    return f"{base}_conversa"
+
+
+def _render_conversation_export_html(
+    project: Project,
+    messages: list[dict],
+    source_name: str,
+    source_label: str,
+    origin_label: str,
+    pdf_mode: bool = False,
+    suggested_pdf_filename: str | None = None,
+) -> str:
+    return templates.env.get_template("conversation_export.html").render(
+        project=project,
+        messages=messages,
+        source_name=source_name,
+        source_label=source_label,
+        origin_label=origin_label,
+        pdf_mode=pdf_mode,
+        suggested_pdf_filename=suggested_pdf_filename,
+    )
+
+
+@app.get("/projects/{project_id}/conversation/download-html")
+def conversation_download_html(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto nao encontrado")
+
+    source_path, messages = _get_cached_conversation_messages(project, db)
+    source_label = _conversation_source_label(project, source_path)
+    origin_label = _project_origin_label(project)
+    exported_messages = _messages_for_textual_export(messages)
+
+    html = _render_conversation_export_html(
         project=project,
         messages=exported_messages,
         source_name=source_path.name,
         source_label=source_label,
         origin_label=origin_label,
+        pdf_mode=False,
     )
-    base = _sanitize_download_name(project.name, f"projeto_{project.id}")
+    base = _safe_download_base(project.name, project.id)
     filename = f"{base}_conversa.html"
     return Response(
         content=html,
         media_type="text/html; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/projects/{project_id}/conversation/download-pdf")
+def conversation_download_pdf(project_id: int, db: Session = Depends(get_db)):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto nao encontrado")
+
+    source_path, messages = _get_cached_conversation_messages(project, db)
+    source_label = _conversation_source_label(project, source_path)
+    origin_label = _project_origin_label(project)
+    exported_messages = _messages_for_textual_export(messages)
+    suggested_pdf_stem = _safe_pdf_filename_stem(project.name or "", project.id)
+
+    html = _render_conversation_export_html(
+        project=project,
+        messages=exported_messages,
+        source_name=source_path.name,
+        source_label=source_label,
+        origin_label=origin_label,
+        pdf_mode=True,
+        suggested_pdf_filename=suggested_pdf_stem,
+    )
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'inline; filename="{suggested_pdf_stem}.html"'},
     )
 
 
@@ -2141,6 +2291,9 @@ def update_project_settings(
     include_videos_media: bool = Form(False),
     include_stickers_media: bool = Form(False),
     include_documents_media: bool = Form(False),
+    transcribe_only_referenced: bool = Form(False),
+    show_audio_attachments: bool = Form(False),
+    show_video_attachments: bool = Form(False),
     selected_audio_ids: list[int] = Form([]),
     db: Session = Depends(get_db),
 ):
@@ -2156,6 +2309,9 @@ def update_project_settings(
         include_videos_media=include_videos_media,
         include_stickers_media=include_stickers_media,
         include_documents_media=include_documents_media,
+        transcribe_only_referenced=transcribe_only_referenced,
+        show_audio_attachments=show_audio_attachments,
+        show_video_attachments=show_video_attachments,
         selected_audio_ids=selected_audio_ids,
         db=db,
     )
@@ -2174,6 +2330,9 @@ def _update_project_settings_core(
     include_videos_media: bool,
     include_stickers_media: bool,
     include_documents_media: bool,
+    transcribe_only_referenced: bool,
+    show_audio_attachments: bool,
+    show_video_attachments: bool,
     selected_audio_ids: list[int],
     db: Session,
 ) -> Project:
@@ -2189,8 +2348,12 @@ def _update_project_settings_core(
     model_size = _normalize_model_size(runtime_model_size)
     device = _normalize_device(runtime_device)
     compute_type = _normalize_compute_type(runtime_compute_type)
-    existing_ids = {row[0] for row in db.query(Audio.id).filter(Audio.project_id == project.id).all()}
-    sanitized = [int(v) for v in selected_audio_ids if int(v) in existing_ids]
+    audio_rows = db.query(Audio.id, Audio.line_hint).filter(Audio.project_id == project.id).all()
+    existing_ids = {int(row[0]) for row in audio_rows}
+    if transcribe_only_referenced:
+        sanitized = sorted(int(row[0]) for row in audio_rows if row[1])
+    else:
+        sanitized = [int(v) for v in selected_audio_ids if int(v) in existing_ids]
 
     config = _load_project_config(project_dir)
     config["language"] = language
@@ -2203,6 +2366,9 @@ def _update_project_settings_core(
     config["include_videos_media"] = include_videos_media
     config["include_stickers_media"] = include_stickers_media
     config["include_documents_media"] = include_documents_media
+    config["transcribe_only_referenced"] = transcribe_only_referenced
+    config["show_audio_attachments"] = show_audio_attachments
+    config["show_video_attachments"] = show_video_attachments
     config["selected_audio_ids"] = sanitized
     _save_project_config(project_dir, config)
     append_audit_log(f"project={project.id} settings_updated selected={len(sanitized)}")
@@ -2222,6 +2388,9 @@ def update_project_settings_api(
     include_videos_media: bool = Form(False),
     include_stickers_media: bool = Form(False),
     include_documents_media: bool = Form(False),
+    transcribe_only_referenced: bool = Form(False),
+    show_audio_attachments: bool = Form(False),
+    show_video_attachments: bool = Form(False),
     selected_audio_ids: list[int] = Form([]),
     db: Session = Depends(get_db),
 ):
@@ -2237,6 +2406,9 @@ def update_project_settings_api(
         include_videos_media=include_videos_media,
         include_stickers_media=include_stickers_media,
         include_documents_media=include_documents_media,
+        transcribe_only_referenced=transcribe_only_referenced,
+        show_audio_attachments=show_audio_attachments,
+        show_video_attachments=show_video_attachments,
         selected_audio_ids=selected_audio_ids,
         db=db,
     )
@@ -2251,11 +2423,13 @@ def start_transcription(project_id: int, db: Session = Depends(get_db)):
 
     if project.status == "archived":
         raise HTTPException(status_code=400, detail="Projeto arquivado. Restaure para iniciar.")
-    if project.status == "done" and _is_project_fully_done(project, db):
-        raise HTTPException(status_code=400, detail="Projeto ja concluido. Nao e necessario iniciar novamente.")
 
     if project.status in REFRESH_STATUSES:
         return RedirectResponse(url=f"/projects/{project.id}", status_code=303)
+
+    if project.status == "done" and _is_project_fully_done(project, db):
+        reset_count = _reset_selected_audio_outputs_for_retranscription(project, db)
+        append_audit_log(f"project={project.id} retranscription_prepared audios={reset_count}")
 
     project.status = "queued"
     project.cancel_requested = 0
@@ -2277,10 +2451,11 @@ def start_transcription_api(project_id: int, db: Session = Depends(get_db)):
 
     if project.status == "archived":
         raise HTTPException(status_code=400, detail="Projeto arquivado. Restaure para iniciar.")
-    if project.status == "done" and _is_project_fully_done(project, db):
-        raise HTTPException(status_code=400, detail="Projeto ja concluido. Nao e necessario iniciar novamente.")
 
     if project.status not in REFRESH_STATUSES:
+        if project.status == "done" and _is_project_fully_done(project, db):
+            reset_count = _reset_selected_audio_outputs_for_retranscription(project, db)
+            append_audit_log(f"project={project.id} retranscription_prepared_api audios={reset_count}")
         project.status = "queued"
         project.cancel_requested = 0
         project.transcription_started_at = datetime.now()
