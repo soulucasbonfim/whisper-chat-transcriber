@@ -88,7 +88,7 @@ Na página inicial, escolha um dos fluxos:
 
 Na página do projeto:
 
-- clique em `Iniciar transcrição` (ou `Continuar transcrição`);
+- clique em `Iniciar transcrição`, `Continuar transcrição` ou `Nova transcrição` (quando o projeto já tiver sido concluído);
 - acompanhe o progresso;
 - use os botões de download no final.
 
@@ -113,17 +113,32 @@ Na página do projeto:
   inclui anexos de documento/outros arquivos com link.
 - `Transcrever apenas áudios mencionados no texto`:
   processa só os áudios que realmente aparecem no chat.
+- `Exibir players de áudio na conversa`:
+  controla apenas a exibição dos players de áudio na conversa (não força nova transcrição por si só).
+- `Exibir players de vídeo na conversa`:
+  controla apenas a exibição dos players de vídeo na conversa (não força nova transcrição por si só).
 
 ## O que você pode baixar no final
 
 - `Baixar texto final com transcrições`:
   arquivo `.txt` com a conversa e as transcrições inseridas.
+- `Baixar texto final`:
+  atalho para exportar o texto final do projeto em `.txt`.
 - `Visualizar conversa`:
   leitura em formato de chat dentro do navegador.
 - `Baixar conversa (.html)`:
   exporta só a conversa em HTML.
+- `Salvar conversa em PDF`:
+  usa o fluxo nativo de impressão do navegador (Safari, Firefox, Chrome, Edge) para salvar em PDF.
 - `Baixar conversa + anexos (.zip)`:
   exporta HTML + anexos para abrir em outro computador.
+
+Os arquivos de download usam o nome do projeto como base, com normalização para remover acentos e caracteres não recomendados em nome de arquivo.
+
+## Comportamentos importantes
+
+- Em projetos com status `processing`, `queued`, `stopping` ou `importing`, as ações de `Arquivar` e `Excluir` ficam desabilitadas.
+- A exibição de players (áudio/vídeo) é independente do processamento de transcrição.
 
 ## Privacidade
 
